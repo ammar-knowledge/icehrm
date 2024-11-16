@@ -5,12 +5,12 @@ IceHrm
 IceHrm is an [HRM software](https://icehrm.com) which enable companies to manage employee details and HR workflows.
 
 - Checkout IceHrm without installing: [IceHrm Demo](https://icehrm.com/icehrm-demo)
-- Get a Mananged IceHrm Installation: [IceHrm Cloud](https://icehrm.com/icehrm-cloud)
-- Self Host a Feature Rich Version of IceHrm: [IceHrmPro](https://icehrm.com/purchase-icehrmpro)
+- Get a Managed IceHrm hosting: [IceHrm Cloud](https://icehrm.com/icehrm-cloud)
+- Self-hosted IceHrm with all the features in IceHrm Cloud: [IceHrmPro](https://icehrm.com/purchase-icehrmpro)
 
-![](docs/images/icehrm-employee-list.png)
+![](docs/images/icehrm-open-demo-1.png)
 &nbsp;&nbsp;&nbsp;&nbsp;
-![](docs/images/icehrm-dashboard.png)
+![](docs/images/icehrm-open-demo-2.png)
 
 ## Installation
 
@@ -37,16 +37,24 @@ npm run docker:start
 
 ### Upgrade from Previous Versions
 
-Refer: [https://icehrm.com/explore/docs/upgrade-icehrmpro/](https://icehrm.com/explore/docs/upgrade-icehrmpro/)
-
+- Download the [latest release](https://github.com/gamonoid/icehrm/releases/latest).
+- Extract the release file.
+- Replace the `icehrm/core` directory in your current installation.
+- Replace the `icehrm/web` directory in your current installation.
+- Copy or replace `icehrm/updater` in your current installation.
+- From `icehrm/app` directory in release, copy and replace following files in your installtion `icehrm/app` directory:
+  - fileupload-new.php
+  - fileupload_page.php
+  - google-connect.php
+  - updater.php
 
 ## Setup Development Environment
 ```
 git clone https://github.com/gamonoid/icehrm.git
 cd icehrm
-docker-compose up -d
+docker compose up -d
 ```
-- Visit [http://localhost:9080/](http://localhost:9080/) and login using `admin` as username and password.
+- Visit [http://localhost:9010/](http://localhost:9010/) and login using `admin` as username and password.
 - Watch this for more detailed instructions: [https://www.youtube.com/watch?v=sz8OV_ON6S8](https://www.youtube.com/watch?v=sz8OV_ON6S8)
 
 ### Extend IceHrm with custom Extensions
@@ -111,16 +119,16 @@ var_dump($emp);
 - Run e2e (cypress) tests
 
 ```
-docker-compose -f docker-compose-testing.yaml up --exit-code-from cypress
+docker compose -f docker-compose-testing.yaml up --exit-code-from cypress
 ```
 or
 ```
-docker-compose -f docker-compose-testing.yaml up --exit-code-from cypress --build --force-recreate
+docker compose -f docker-compose-testing.yaml up --exit-code-from cypress --build --force-recreate
 ```
 
 - When you are ready to push your changes to production, make sure to build the production images
 ```
-docker-compose -f docker-compose-prod.yaml up -d --build
+docker compose -f docker-compose-prod.yaml up -d --build
 ```
 
 ### Useful Links
