@@ -10,6 +10,8 @@ namespace Travel\Common\Model;
 
 use Classes\ModuleAccess;
 use Classes\SettingsManager;
+use Classes\FileService\FileService;
+use Employees\Common\Model\Employee;
 use Model\ApproveModel;
 use Model\CustomFieldTrait;
 
@@ -35,12 +37,12 @@ class EmployeeTravelRecord extends ApproveModel
 
     public function getAdminAccess()
     {
-        return array("get", "element", "save", "delete");
+        return array("get", "element", "add","save", "delete");
     }
 
     public function getManagerAccess()
     {
-        return array("get", "element", "save", "delete");
+        return array("get", "element", "add","save", "delete");
     }
 
     public function getUserAccess()
@@ -50,7 +52,24 @@ class EmployeeTravelRecord extends ApproveModel
 
     public function getUserOnlyMeAccess()
     {
-        return array("element", "save", "delete");
+        return array("element", "add","save", "delete");
+    }
+
+    /**
+     * Mass-assignment guard: 'status' is set only by the approval workflow
+     * (ApproveAdminActionManager::changeStatus, which Saves the model directly and does
+     * NOT pass through addElement). Block it on the generic save/add path for non-admins
+     * so the owner cannot self-approve by posting a=add&t=EmployeeTravelRecord with
+     * status='Approved'. ApproveModel::executePreSaveActions only defaults status when it
+     * is EMPTY, so without this a supplied value is written straight through.
+     * Admins may still make manual corrections.
+     */
+    public function getProtectedFields($user)
+    {
+        if (!empty($user) && $user->user_level === 'Admin') {
+            return array();
+        }
+        return array('status');
     }
 
     public function fieldsNeedToBeApproved()
@@ -85,4 +104,26 @@ class EmployeeTravelRecord extends ApproveModel
             new ModuleAccess('travel', 'user'),
         ];
     }
+
+    public function postProcessGetData($entry)
+    {
+        // Add employee profile image
+        $employee = new Employee();
+        $employee->Load('id = ?', [$entry->employee]);
+        $employee = \Classes\FileService::getInstance()->updateSmallProfileImage($employee);
+        $entry->image = $employee->image;
+
+        return $entry;
+    }
+
+    /**
+     * A team list exists for this model: the adapter opts into `type=sub`
+     * (isSubProfileTable), so BaseService::getData() may scope its rows to the
+     * caller's direct reports. See BaseModel::allowsSubordinateList().
+     */
+    public function allowsSubordinateList()
+    {
+        return true;
+    }
+
 }

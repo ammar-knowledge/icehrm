@@ -5,12 +5,6 @@ use Classes\ExtensionManager;
 $initializers = [];
 //Reset modules if required
 if (\Classes\SettingsManager::getInstance()->getSetting("System: Reset Modules and Permissions") == "1") {
-    $permissionTemp = new \Permissions\Common\Model\Permission();
-    $permissions = $permissionTemp->Find("1=1");
-    foreach ($permissions as $permTemp) {
-        $permTemp->Delete();
-    }
-
     $moduleTemp = new \Modules\Common\Model\Module();
     $modulesTemp = $moduleTemp->Find("1=1");
     foreach ($modulesTemp as $moduleTemp) {
@@ -18,12 +12,6 @@ if (\Classes\SettingsManager::getInstance()->getSetting("System: Reset Modules a
     }
 
     \Classes\SettingsManager::getInstance()->setSetting("System: Reset Modules and Permissions", "0");
-}
-
-$addNewPermissions = false;
-if (\Classes\SettingsManager::getInstance()->getSetting("System: Add New Permissions") == "1") {
-    $addNewPermissions = true;
-    \Classes\SettingsManager::getInstance()->setSetting("System: Add New Permissions", "0");
 }
 
 $resetModuleNames = false;
@@ -63,33 +51,6 @@ function includeModuleManager($type, $name, $data)
     return $moduleManagerObj;
 }
 
-function createPermissions($meta, $moduleId)
-{
-    $permData = $meta->permissions;
-    if (empty($permData)) {
-        return;
-    }
-
-    foreach ($permData as $key => $val) {
-        if (!empty($val)) {
-            foreach ($val as $permissionString => $defaultValue) {
-                $permissionObj = new \Permissions\Common\Model\Permission();
-                $permissionObj->Load("user_level = ? and module_id = ? and permission = ?", array($key, $moduleId, $permissionString));
-
-                if (empty($permissionObj->id) && $permissionObj->module_id == $moduleId) {
-                } else {
-                    $permissionObj = new \Permissions\Common\Model\Permission();
-                    $permissionObj->user_level = $key;
-                    $permissionObj->module_id = $moduleId;
-                    $permissionObj->permission = $permissionString;
-                    $permissionObj->value = $defaultValue;
-                    $permissionObj->meta = '["value", {"label":"Value","type":"select","source":[["Yes","Yes"],["No","No"]]}]';
-                    $permissionObj->Save();
-                }
-            }
-        }
-    }
-}
 
 $dbModule = new \Modules\Common\Model\Module();
 $adminDbModules = $dbModule->Find("mod_group = ?", array("admin"));
@@ -128,16 +89,16 @@ foreach ($ams as $am) {
         $arr['user_roles'] = isset($meta->user_roles)?$meta->user_roles:"";
         $arr['model_namespace'] = $meta->model_namespace;
         $arr['manager'] = $meta->manager;
+        // Optional high-level SPA area (inert in legacy; see MenuAreaService).
+        $arr['area'] = isset($meta->area) ? $meta->area : null;
+        $arr['areaOrder'] = isset($meta->areaOrder) ? $meta->areaOrder : null;
 
         //Check in admin dbmodules
         if (isset($adminDBModuleList[$arr['name']])) {
             $dbModule = $adminDBModuleList[$arr['name']];
 
-            if ($addNewPermissions && isset($meta->permissions)) {
-                createPermissions($meta, $dbModule->id);
-            }
 
-            if ($resetModuleNames) {
+            if ($resetModuleNames || $dbModule->label !== $arr['label'] || $dbModule->menu !== $arr['menu']) {
                 $dbModule->label = $arr['label'];
                 $dbModule->menu = $arr['menu'];
                 $dbModule->icon = $arr['icon'];
@@ -147,9 +108,9 @@ foreach ($ams as $am) {
             }
 
             $arr['name'] = $dbModule->name;
-            $arr['label'] = $dbModule->label;
-            $arr['icon'] = $dbModule->icon;
-            $arr['menu'] = $dbModule->menu;
+//            $arr['label'] = $dbModule->label;
+//            $arr['icon'] = $dbModule->icon;
+//            $arr['menu'] = $dbModule->menu;
             $arr['status'] = $dbModule->status;
             $arr['user_levels'] = json_decode($dbModule->user_levels);
             $arr['user_roles'] = empty($dbModule->user_roles)
@@ -171,9 +132,6 @@ foreach ($ams as $am) {
             $dbModule->user_roles = isset($meta->user_roles)?json_encode($meta->user_roles):"";
             $dbModule->Save();
 
-            if (isset($meta->permissions)) {
-                createPermissions($meta, $dbModule->id);
-            }
         }
 
         /* @var \Classes\AbstractModuleManager */
@@ -205,6 +163,107 @@ foreach ($ams as $am) {
     }
 }
 
+// Scan the admin modules contributed by the leave package (extensions/leave, or
+// the legacy leave_and_performance package). See core/leave-package.php.
+require_once CLIENT_PATH.'/leave-package.php';
+$leavePackageDir = iceLeavePackageDir();
+$proAdminPath = $leavePackageDir === null ? null : $leavePackageDir.'core/admin/';
+if ($proAdminPath !== null && is_dir($proAdminPath)) {
+    $proAms = scandir($proAdminPath);
+    foreach ($proAms as $am) {
+        if (is_dir($proAdminPath.$am) && $am != '.' && $am != '..') {
+            if (!\Classes\BaseService::getInstance()->isModuleEnabled('admin', $am)) {
+                continue;
+            }
+            $meta = json_decode(file_get_contents($proAdminPath.$am.'/meta.json'));
+
+            $arr = array();
+            $arr['name'] = $am;
+            $arr['label'] = $meta->label;
+            $arr['icon'] = $meta->icon;
+            $arr['menu'] = $meta->menu;
+            $arr['order'] = $meta->order;
+            $arr['status'] = 'Enabled';
+            $arr['user_levels'] = $meta->user_levels;
+            $arr['user_roles'] = isset($meta->user_roles)?$meta->user_roles:"";
+            $arr['model_namespace'] = $meta->model_namespace;
+            $arr['manager'] = $meta->manager;
+            // Optional high-level SPA area (inert in legacy; see MenuAreaService).
+            $arr['area'] = isset($meta->area) ? $meta->area : null;
+            $arr['areaOrder'] = isset($meta->areaOrder) ? $meta->areaOrder : null;
+            $arr['is_pro'] = true;
+
+            //Check in admin dbmodules
+            if (isset($adminDBModuleList[$arr['name']])) {
+                $dbModule = $adminDBModuleList[$arr['name']];
+
+
+                if ($resetModuleNames || $dbModule->label !== $arr['label'] || $dbModule->menu !== $arr['menu']) {
+                    $dbModule->label = $arr['label'];
+                    $dbModule->menu = $arr['menu'];
+                    $dbModule->icon = $arr['icon'];
+                    $dbModule->mod_order = $arr['order'];
+                    $dbModule->user_levels = json_encode($arr['user_levels'], true);
+                    $dbModule->Save();
+                }
+
+                $arr['name'] = $dbModule->name;
+                $arr['status'] = $dbModule->status;
+                $arr['user_levels'] = json_decode($dbModule->user_levels);
+                $arr['user_roles'] = empty($dbModule->user_roles)
+                    ? [] : json_decode($dbModule->user_roles);
+                $arr['user_roles_blacklist'] = empty($dbModule->user_roles_blacklist)
+                    ? [] : json_decode($dbModule->user_roles_blacklist);
+            } else {
+                $dbModule = new \Modules\Common\Model\Module();
+                $dbModule->menu = $arr['menu'];
+                $dbModule->name = $arr['name'];
+                $dbModule->label = $arr['label'];
+                $dbModule->icon = $arr['icon'];
+                $dbModule->mod_group = "admin";
+                $dbModule->mod_order = $arr['order'];
+                $dbModule->status = "Enabled";
+                $dbModule->version = isset($meta->version)?$meta->version:"";
+                $dbModule->update_path = "admin>".$am;
+                $dbModule->user_levels = isset($meta->user_levels)?json_encode($meta->user_levels):"";
+                $dbModule->user_roles = isset($meta->user_roles)?json_encode($meta->user_roles):"";
+                $dbModule->Save();
+
+            }
+
+            /* @var \Classes\AbstractModuleManager */
+            $manager = includeModuleManager('admin', $am, $arr);
+            if (null === $manager) {
+                continue;
+            }
+            // Set module path to pro location
+            $manager->setModulePath($proAdminPath.$am);
+
+            if ($dbModule->status == 'Disabled') {
+                continue;
+            }
+
+            if (!isset($adminModulesTemp[$arr['menu']])) {
+                $adminModulesTemp[$arr['menu']] = array();
+            }
+
+            if ($arr['order'] == '0' || $arr['order'] == '') {
+                $adminModulesTemp[$arr['menu']]["Z".$currentLocation] = $arr;
+                $currentLocation++;
+            } else {
+                $adminModulesTemp[$arr['menu']]["A".$arr['order']] = $arr;
+            }
+
+            /* @var \Classes\AbstractInitialize $initializer */
+            $initializer = $manager->getInitializer();
+            if ($initializer !== null) {
+                $initializer->setBaseService($baseService);
+                $initializers[] = $initializer;
+            }
+        }
+    }
+}
+
 $userModulesTemp = array();
 $ams = scandir(CLIENT_PATH.'/modules/');
 foreach ($ams as $am) {
@@ -231,11 +290,8 @@ foreach ($ams as $am) {
             if (isset($userDBModuleList[$arr['name']])) {
                 $dbModule = $userDBModuleList[$arr['name']];
 
-                if ($addNewPermissions && isset($meta->permissions)) {
-                    createPermissions($meta, $dbModule->id);
-                }
 
-                if ($resetModuleNames) {
+                if ($resetModuleNames || $dbModule->label !== $arr['label'] || $dbModule->menu !== $arr['menu']) {
                     $dbModule->label = $arr['label'];
                     $dbModule->menu = $arr['menu'];
                     $dbModule->icon = $arr['icon'];
@@ -245,10 +301,9 @@ foreach ($ams as $am) {
                 }
 
                 $arr['name'] = $dbModule->name;
-                $arr['label'] = $dbModule->label;
-                $arr['icon'] = $dbModule->icon;
-                $arr['menu'] = $dbModule->menu;
-                //$arr['order'] = $dbModule->mod_order;
+//                $arr['label'] = $dbModule->label;
+//                $arr['icon'] = $dbModule->icon;
+//                $arr['menu'] = $dbModule->menu;
                 $arr['status'] = $dbModule->status;
                 $arr['user_levels'] = json_decode($dbModule->user_levels);
                 $arr['user_roles'] = empty($dbModule->user_roles)
@@ -270,9 +325,6 @@ foreach ($ams as $am) {
                 $dbModule->user_roles = isset($meta->user_roles) ? json_encode($meta->user_roles) : "";
                 $dbModule->Save();
 
-                if (isset($meta->permissions)) {
-                    createPermissions($meta, $dbModule->id);
-                }
             }
 
             /* @var \Classes\AbstractModuleManager */
@@ -304,6 +356,106 @@ foreach ($ams as $am) {
         }
     } catch (\Exception $e) {
         $k = $e;
+    }
+}
+
+// Scan the user modules contributed by the leave package (extensions/leave, or
+// the legacy leave_and_performance package). See core/leave-package.php.
+$leavePackageDir = iceLeavePackageDir();
+$proModulesPath = $leavePackageDir === null ? null : $leavePackageDir.'core/modules/';
+if ($proModulesPath !== null && is_dir($proModulesPath)) {
+    $proUms = scandir($proModulesPath);
+    foreach ($proUms as $am) {
+        try {
+            if (is_dir($proModulesPath.$am) && $am != '.' && $am != '..') {
+                if (!\Classes\BaseService::getInstance()->isModuleEnabled('modules', $am)) {
+                    continue;
+                }
+                $meta = json_decode(file_get_contents($proModulesPath.$am.'/meta.json'));
+
+                $arr = array();
+                $arr['name'] = $am;
+                $arr['label'] = $meta->label;
+                $arr['icon'] = $meta->icon;
+                $arr['menu'] = $meta->menu;
+                $arr['order'] = $meta->order;
+                $arr['status'] = 'Enabled';
+                $arr['user_levels'] = $meta->user_levels;
+                $arr['user_roles'] = isset($meta->user_roles) ? $meta->user_roles : "";
+                $arr['model_namespace'] = $meta->model_namespace;
+                $arr['manager'] = $meta->manager;
+                $arr['is_pro'] = true;
+
+                //Check in user dbmodules
+                if (isset($userDBModuleList[$arr['name']])) {
+                    $dbModule = $userDBModuleList[$arr['name']];
+
+
+                    if ($resetModuleNames || $dbModule->label !== $arr['label'] || $dbModule->menu !== $arr['menu']) {
+                        $dbModule->label = $arr['label'];
+                        $dbModule->menu = $arr['menu'];
+                        $dbModule->icon = $arr['icon'];
+                        $dbModule->mod_order = $arr['order'];
+                        $dbModule->user_levels = json_encode($arr['user_levels'], true);
+                        $dbModule->Save();
+                    }
+
+                    $arr['name'] = $dbModule->name;
+                    $arr['status'] = $dbModule->status;
+                    $arr['user_levels'] = json_decode($dbModule->user_levels);
+                    $arr['user_roles'] = empty($dbModule->user_roles)
+                        ? [] : json_decode($dbModule->user_roles);
+                    $arr['user_roles_blacklist'] = empty($dbModule->user_roles_blacklist)
+                        ? [] : json_decode($dbModule->user_roles_blacklist);
+                } else {
+                    $dbModule = new \Modules\Common\Model\Module();
+                    $dbModule->menu = $arr['menu'];
+                    $dbModule->name = $arr['name'];
+                    $dbModule->label = $arr['label'];
+                    $dbModule->icon = $arr['icon'];
+                    $dbModule->mod_group = "user";
+                    $dbModule->mod_order = $arr['order'];
+                    $dbModule->status = "Enabled";
+                    $dbModule->version = isset($meta->version) ? $meta->version : "";
+                    $dbModule->update_path = "modules>" . $am;
+                    $dbModule->user_levels = isset($meta->user_levels) ? json_encode($meta->user_levels) : "";
+                    $dbModule->user_roles = isset($meta->user_roles) ? json_encode($meta->user_roles) : "";
+                    $dbModule->Save();
+
+                }
+
+                /* @var \Classes\AbstractModuleManager */
+                $manager = includeModuleManager('modules', $am, $arr);
+                if (null === $manager) {
+                    continue;
+                }
+                // Set module path to pro location
+                $manager->setModulePath($proModulesPath.$am);
+
+                if ($dbModule->status == 'Disabled') {
+                    continue;
+                }
+
+                if (!isset($userModulesTemp[$arr['menu']])) {
+                    $userModulesTemp[$arr['menu']] = array();
+                }
+
+                if ($arr['order'] == '0' || $arr['order'] == '') {
+                    $userModulesTemp[$arr['menu']]["Z" . $currentLocation] = $arr;
+                    $currentLocation++;
+                } else {
+                    $userModulesTemp[$arr['menu']]["A" . $arr['order']] = $arr;
+                }
+
+                $initializer = $manager->getInitializer();
+                if ($initializer !== null) {
+                    $initializer->setBaseService($baseService);
+                    $initializers[] = $initializer;
+                }
+            }
+        } catch (\Exception $e) {
+            $k = $e;
+        }
     }
 }
 
@@ -361,6 +513,11 @@ foreach ($userModulesTemp as $k => $v) {
 
 // Merge icons
 $mainIcons = array_merge($adminIcons, $userIcons);
+
+// SPA migration (Phase 0): capture the UNFILTERED menu tree so MenuService can
+// produce the same filtered menu for any user via the REST API. Must run BEFORE
+// the legacy session-user filter below. See docs/SPA_MIGRATION_PLAN.md.
+\Classes\MenuService::getInstance()->setRawMenus($adminModules, $userModules, $mainIcons);
 
 //Remove modules having no permissions
 if (!empty($user)) {
@@ -428,8 +585,4 @@ if (!empty($user)) {
     }
 }
 
-// Run initializers
-foreach ($initializers as $initializer) {
-    $initializer->init();
-}
 

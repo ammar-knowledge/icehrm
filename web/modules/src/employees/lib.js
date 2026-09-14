@@ -10,8 +10,9 @@ import React from 'react';
 import ReactDOM from 'react-dom';
 import QRCode from 'qrcode';
 import AdapterBase from '../../../api/AdapterBase';
-import ReactModalAdapterBase from '../../../api/ReactModalAdapterBase';
+import ReactModalAdapterBase, { shellThemeWrap } from '../../../api/ReactModalAdapterBase';
 import EmployeeProfile from './components/EmployeeProfile';
+import { escapeHtml } from '../../../api-common/htmlEscape';
 
 
 class EmployeeAdapter extends ReactModalAdapterBase {
@@ -63,27 +64,40 @@ class EmployeeAdapter extends ReactModalAdapterBase {
       { sTitle: 'Mobile' },
       { sTitle: 'Department' },
       { sTitle: 'Gender' },
-      { sTitle: 'Supervisor' },
+      { sTitle: 'Manager' },
     ];
   }
 
   initTable() {
-    this.initProfile();
+    // initTable() is re-invoked by the shell on a dark/light theme toggle to
+    // re-render with the new theme; pass the already-loaded employee so it does
+    // not drop back to the loading skeleton.
+    this.initProfile(this.loadedEmployee);
   }
 
   initProfile(employee) {
+    if (employee) {
+      this.loadedEmployee = employee;
+    }
     const tableDom = document.getElementById(`${this.tab}`);
     this.tableContainer = React.createRef();
+    // Wrap in the shell theme so the profile follows dark/light mode in the SPA
+    // (no-op in the legacy app). Without this the antd cards rendered light on
+    // the dark shell and the inner sub-tab labels were unreadable.
     ReactDOM.render(
-      <EmployeeProfile
-        ref={this.tableContainer}
-        adapter={this}
-        element={employee}
-      />,
+      shellThemeWrap(
+        <EmployeeProfile
+          ref={this.tableContainer}
+          adapter={this}
+          element={employee}
+        />,
+      ),
       tableDom,
     );
 
-    this.tableContainer.current.setLoading(!employee);
+    if (this.tableContainer.current) {
+      this.tableContainer.current.setLoading(!employee);
+    }
   }
 
   get() {
@@ -114,63 +128,17 @@ class EmployeeAdapter extends ReactModalAdapterBase {
     let employee_id; let ssn_num; let employment_status; let job_title; let pay_grade; let joined_date; let department; let work_email; let
       country;
 
-    if (this.checkPermission('Edit Employee Number') === 'Yes') {
-      employee_id = ['employee_id', { label: 'Employee Number', type: 'text', validation: '' }];
-    } else {
-      employee_id = ['employee_id', { label: 'Employee Number', type: 'placeholder', validation: '' }];
-    }
-
-    if (this.checkPermission('Edit EPF/CPF Number') === 'Yes') {
-      ssn_num = ['ssn_num', { label: 'EPF/CPF/SS No', type: 'text', validation: 'none' }];
-    } else {
-      ssn_num = ['ssn_num', { label: 'EPF/CPF/SS No', type: 'placeholder', validation: 'none' }];
-    }
-
-    if (this.checkPermission('Edit Employment Status') === 'Yes') {
-      employment_status = ['employment_status', { label: 'Employment Status', type: 'select2', 'remote-source': ['EmploymentStatus', 'id', 'name'] }];
-    } else {
-      employment_status = ['employment_status', { label: 'Employment Status', type: 'placeholder', 'remote-source': ['EmploymentStatus', 'id', 'name'] }];
-    }
-
-    if (this.checkPermission('Edit Job Title') === 'Yes') {
-      job_title = ['job_title', { label: 'Job Title', type: 'select2', 'remote-source': ['JobTitle', 'id', 'name'] }];
-    } else {
-      job_title = ['job_title', { label: 'Job Title', type: 'placeholder', 'remote-source': ['JobTitle', 'id', 'name'] }];
-    }
-
-    if (this.checkPermission('Edit Pay Grade') === 'Yes') {
-      pay_grade = ['pay_grade', {
-        label: 'Pay Grade', type: 'select2', 'allow-null': true, 'remote-source': ['PayGrade', 'id', 'name'],
-      }];
-    } else {
-      pay_grade = ['pay_grade', {
-        label: 'Pay Grade', type: 'placeholder', 'allow-null': true, 'remote-source': ['PayGrade', 'id', 'name'],
-      }];
-    }
-
-    if (this.checkPermission('Edit Joined Date') === 'Yes') {
-      joined_date = ['joined_date', { label: 'Joined Date', type: 'date', validation: '' }];
-    } else {
-      joined_date = ['joined_date', { label: 'Joined Date', type: 'placeholder', validation: '' }];
-    }
-
-    if (this.checkPermission('Edit Department') === 'Yes') {
-      department = ['department', { label: 'Department', type: 'select2', 'remote-source': ['CompanyStructure', 'id', 'title'] }];
-    } else {
-      department = ['department', { label: 'Department', type: 'placeholder', 'remote-source': ['CompanyStructure', 'id', 'title'] }];
-    }
-
-    if (this.checkPermission('Edit Work Email') === 'Yes') {
-      work_email = ['work_email', { label: 'Work Email', type: 'text', validation: 'email' }];
-    } else {
-      work_email = ['work_email', { label: 'Work Email', type: 'placeholder', validation: 'emailOrEmpty' }];
-    }
-
-    if (this.checkPermission('Edit Country') === 'Yes') {
-      country = ['country', { label: 'Country', type: 'select2', 'remote-source': ['Country', 'code', 'name'] }];
-    } else {
-      country = ['country', { label: 'Country', type: 'placeholder', 'remote-source': ['Country', 'code', 'name'] }];
-    }
+    employee_id = ['employee_id', { label: 'Employee Number', type: 'text', validation: '' }];
+    ssn_num = ['ssn_num', { label: 'EPF/CPF/SS No', type: 'text', validation: 'none' }];
+    employment_status = ['employment_status', { label: 'Employment Status', type: 'select2', 'remote-source': ['EmploymentStatus', 'id', 'name'] }];
+    job_title = ['job_title', { label: 'Job Title', type: 'select2', 'remote-source': ['JobTitle', 'id', 'name'] }];
+    pay_grade = ['pay_grade', {
+      label: 'Pay Grade', type: 'select2', 'allow-null': true, 'remote-source': ['PayGrade', 'id', 'name'],
+    }];
+    joined_date = ['joined_date', { label: 'Joined Date', type: 'date', validation: '' }];
+    department = ['department', { label: 'Department', type: 'select2', 'remote-source': ['CompanyStructure', 'id', 'title'] }];
+    work_email = ['work_email', { label: 'Work Email', type: 'text', validation: 'email' }];
+    country = ['country', { label: 'Country', type: 'select2', 'remote-source': ['Country', 'code', 'name'] }];
 
     const fields = [
       ['id', { label: 'ID', type: 'hidden', validation: '' }],
@@ -182,13 +150,21 @@ class EmployeeAdapter extends ReactModalAdapterBase {
       ['birthday', { label: 'Date of Birth', type: 'date', validation: '' }],
       ['gender', { label: 'Gender', type: 'select', source: [['Male', 'Male'], ['Female', 'Female'], ['Non-binary', 'Non-binary'], ['Other', 'Other'], ['Prefer not to say', 'Prefer not to say']] }],
       ['marital_status', { label: 'Marital Status', type: 'select', source: [['Married', 'Married'], ['Single', 'Single'], ['Divorced', 'Divorced'], ['Widowed', 'Widowed'], ['Other', 'Other']] }],
+      ['immigration_status', {
+        label: 'Immigration Status', type: 'select2', 'allow-null': true, 'remote-source': ['ImmigrationStatus', 'id', 'name'],
+      }],
+      ['tax_id', { label: 'Personal Tax ID', type: 'text', validation: 'none' }],
       ssn_num,
       ['nic_num', { label: 'NIC', type: 'text', validation: 'none' }],
       ['other_id', { label: 'Other ID', type: 'text', validation: 'none' }],
       ['driving_license', { label: 'Driving License No', type: 'text', validation: 'none' }],
+      ['health_insurance', { label: 'Health Insurance', type: 'text', validation: 'none' }],
       employment_status,
       job_title,
       pay_grade,
+      ['timezone', {
+        label: 'Time Zone', type: 'select2', 'allow-null': false, 'remote-source': ['Timezone', 'name', 'details', 'getTimezonesWithOffset'],
+      }],
       ['work_station_id', { label: 'Work Station Id', type: 'text', validation: 'none' }],
       ['address1', { label: 'Address Line 1', type: 'text', validation: 'none' }],
       ['address2', { label: 'Address Line 2', type: 'text', validation: 'none' }],
@@ -250,10 +226,12 @@ class EmployeeAdapter extends ReactModalAdapterBase {
         description: this.gt('Personal Information'),
         fields: [
           'immigration_status',
+          'tax_id',
           'ssn_num',
           'nic_num',
           'other_id',
           'driving_license',
+          'health_insurance',
         ],
       },
       {
@@ -268,6 +246,7 @@ class EmployeeAdapter extends ReactModalAdapterBase {
           'confirmation_date',
           'termination_date',
           'work_station_id',
+          'timezone',
         ],
       },
       {
@@ -346,8 +325,9 @@ class EmployeeAdapter extends ReactModalAdapterBase {
   }
 
   modEmployeeDeleteProfileImageCallBack(data) {
-    // eslint-disable-next-line no-restricted-globals
-    top.location.href = top.location.href;
+    // Re-fetch the profile so the avatar clears in-place (mirrors the upload
+    // flow) instead of a jarring full-app reload.
+    this.viewElement();
   }
 
   modEmployeeGetSuccessCallBack(data) {
@@ -378,24 +358,24 @@ class EmployeeAdapter extends ReactModalAdapterBase {
     $(`#${this.getTableName()}`).html(html);
 
     for (let i = 0; i < fields.length; i++) {
-      $(`#${this.getTableName()} #${fields[i][0]}`).html(data[fields[i][0]]);
-      $(`#${this.getTableName()} #${fields[i][0]}_Name`).html(data[`${fields[i][0]}_Name`]);
+      $(`#${this.getTableName()} #${fields[i][0]}`).html(escapeHtml(data[fields[i][0]]));
+      $(`#${this.getTableName()} #${fields[i][0]}_Name`).html(escapeHtml(data[`${fields[i][0]}_Name`]));
     }
 
-    $(`#${this.getTableName()} #supervisor_Name`).html(data.supervisor_Name);
+    $(`#${this.getTableName()} #supervisor_Name`).html(escapeHtml(data.supervisor_Name));
 
     let subordinates = '';
     for (let i = 0; i < data.subordinates.length; i++) {
       if (data.subordinates[i].first_name !== undefined && data.subordinates[i].first_name !== null) {
-        subordinates += `${data.subordinates[i].first_name} `;
+        subordinates += `${escapeHtml(data.subordinates[i].first_name)} `;
       }
 
       if (data.subordinates[i].middle_name !== undefined && data.subordinates[i].middle_name !== null && data.subordinates[i].middle_name !== '') {
-        subordinates += `${data.subordinates[i].middle_name} `;
+        subordinates += `${escapeHtml(data.subordinates[i].middle_name)} `;
       }
 
       if (data.subordinates[i].last_name !== undefined && data.subordinates[i].last_name !== null && data.subordinates[i].last_name !== '') {
-        subordinates += data.subordinates[i].last_name;
+        subordinates += escapeHtml(data.subordinates[i].last_name);
       }
       subordinates += '<br/>';
     }
@@ -418,19 +398,19 @@ class EmployeeAdapter extends ReactModalAdapterBase {
           // Add section
           let sectionHtml = sectionTemplate;
           sectionHtml = sectionHtml.replace('#_section_#', sectionId);
-          sectionHtml = sectionHtml.replace('#_section.name_#', data.customFields[index][1]);
+          sectionHtml = sectionHtml.replace('#_section.name_#', escapeHtml(data.customFields[index][1]));
           $('#customFieldsCont').append($(sectionHtml));
         }
 
         customFieldHtml = ct;
-        customFieldHtml = customFieldHtml.replace('#_label_#', index);
+        customFieldHtml = customFieldHtml.replace('#_label_#', escapeHtml(index));
         if (data.customFields[index][2] === 'fileupload') {
           customFieldHtml = customFieldHtml.replace(
             '#_value_#',
-            `<button onclick="download('${data.customFields[index][0]}');return false;" class="btn btn-mini btn-inverse" type="button">View: ${index}</button>`,
+            `<button onclick="download('${escapeHtml(data.customFields[index][0])}');return false;" class="btn btn-mini btn-inverse" type="button">View: ${escapeHtml(index)}</button>`,
           );
         } else {
-          customFieldHtml = customFieldHtml.replace('#_value_#', data.customFields[index][0]);
+          customFieldHtml = customFieldHtml.replace('#_value_#', escapeHtml(data.customFields[index][0]));
         }
         $(`#cont_${sectionId}`).append($(customFieldHtml));
       }
@@ -441,19 +421,10 @@ class EmployeeAdapter extends ReactModalAdapterBase {
     $(`#${this.getTableName()} #subordinates`).html(subordinates);
 
 
-    $(`#${this.getTableName()} #name`).html(`${data.first_name} ${data.last_name}`);
+    $(`#${this.getTableName()} #name`).html(`${escapeHtml(data.first_name)} ${escapeHtml(data.last_name)}`);
     this.currentUserId = data.id;
 
     $(`#${this.getTableName()} #profile_image_${data.id}`).attr('src', data.image);
-
-    if (this.checkPermission('Upload/Delete Profile Image') === 'No') {
-      $('#employeeUploadProfileImage').remove();
-      $('#employeeDeleteProfileImage').remove();
-    }
-
-    if (this.checkPermission('Edit Employee Details') === 'No') {
-      $('#employeeProfileEditInfo').remove();
-    }
 
     if (currentEmpId !== userEmpId) {
       $('#employeeUpdatePassword').remove();
@@ -814,10 +785,10 @@ class CompanyGraphAdapter extends CompanyStructureAdapter {
 
 
 /*
- * Api Access
+ * Mobile App and API
  */
 
-class ApiAccessAdapter extends AdapterBase {
+class MobileAppAdapter extends AdapterBase {
   getDataMapping() {
     return [
     ];
@@ -839,14 +810,13 @@ class ApiAccessAdapter extends AdapterBase {
   }
 
   getOneTimeLoginCode() {
-    const reqJson = JSON.stringify({url: this.apiUrl, token: this.token});
+    const reqJson = JSON.stringify({ url: this.apiUrl, token: this.token });
     const callBackData = [];
     callBackData.callBackData = [];
     callBackData.callBackSuccess = 'loginCodeSuccessCallback';
     callBackData.callBackFail = 'loginCodeFailCallBack';
 
     this.customAction('getLoginCode', 'modules=employees', reqJson, callBackData, false);
-
   }
 
   loginCodeSuccessCallback(callBackData) {
@@ -854,23 +824,28 @@ class ApiAccessAdapter extends AdapterBase {
   }
 
   loginCodeFailCallBack(callBackData) {
-    this.showMessage('Error', 'Error occurred while requesting login code. Please contact team@icehrm.com.')
+    this.showMessage('Error', 'Error occurred while requesting login code. Please contact team@icehrm.com.');
   }
+
+  resetApiToken() {
+    const reqJson = JSON.stringify({});
+    const callBackData = [];
+    callBackData.callBackData = [];
+    callBackData.callBackSuccess = 'resetApiTokenSuccessCallback';
+    callBackData.callBackFail = 'resetApiTokenFailCallback';
+
+    // POST — this is a mutation (regenerates the token server-side).
+    this.customAction('resetApiToken', 'modules=employees', reqJson, callBackData, true);
+  }
+
+  // Overridden by the ApiAccess tab to update its React state; no-ops otherwise.
+  resetApiTokenSuccessCallback() {}
+
+  resetApiTokenFailCallback() {}
 
   get() {
     const that = this;
-    $('#loginCode button').on("click", function(){ that.getOneTimeLoginCode() });
-
-    const canvas = document.getElementById('apiQRcode');
-    QRCode.toCanvas(canvas, JSON.stringify({
-      key: 'IceHrm',
-      url: this.apiUrl,
-      token: this.token,
-    }), (error) => {
-      if (error) {
-        console.log(error);
-      }
-    });
+    $('#loginCode button').on('click', () => { that.getOneTimeLoginCode(); });
   }
 }
 
@@ -878,5 +853,5 @@ class ApiAccessAdapter extends AdapterBase {
 module.exports = {
   EmployeeAdapter,
   CompanyGraphAdapter,
-  ApiAccessAdapter,
+  MobileAppAdapter,
 };

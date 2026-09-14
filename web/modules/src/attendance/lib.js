@@ -6,9 +6,10 @@
 /* global modJs, modJsList, webkitURL */
 
 import ReactModalAdapterBase from "../../../api/ReactModalAdapterBase";
-import {Button, Progress, Typography} from "antd";
+import {Button, Progress, Typography, message} from "antd";
 import React from "react";
 import {PlusCircleOutlined} from "@ant-design/icons";
+import AttendanceModal from '../../../admin/src/attendance/components/AttendanceModal';
 
 const { Text } = Typography;
 
@@ -19,6 +20,7 @@ class AttendanceAdapter extends ReactModalAdapterBase {
     this.useServerTime = 0;
     this.hasOpenPunch = 0;
     this.punchedOutToday = 0;
+    this.overtimeStart = 8;
   }
 
   setUseServerTime(val) {
@@ -40,6 +42,7 @@ class AttendanceAdapter extends ReactModalAdapterBase {
       'out_time',
       'hours',
       'note',
+      'work_from_home',
     ];
   }
 
@@ -84,8 +87,8 @@ class AttendanceAdapter extends ReactModalAdapterBase {
         render: (text, record) => (<Progress
           size="small"
           steps={25}
-          percent={record.hours ? (record.hours / 8) * 100 : 0}
-          format={(percent, successPercent)=> record.hours + 'h / 8h'}
+          percent={record.hours ? (record.hours / this.overtimeStart) * 100 : 0}
+          format={(percent, successPercent)=> record.hours + `h / ${this.overtimeStart}h`}
         />),
         width: '25%',
         dataIndex: 'hours',
@@ -95,7 +98,31 @@ class AttendanceAdapter extends ReactModalAdapterBase {
         dataIndex: 'note',
         sorter: true,
       },
+      {
+        title: 'Work Location',
+        dataIndex: 'work_from_home',
+        render: (text, record) => (
+          record.work_from_home === '1' || record.work_from_home === 1 ? '🏠 Home' : '🏢 Office'
+        ),
+        width: '120px',
+      },
     ];
+  }
+
+  getTableChildComponents() {
+    return (<AttendanceModal/>);
+  }
+
+  showElement(element) {
+    this.tableContainer.current.setCurrentElement(element);
+  }
+
+  keepTableVisibleWhileShowingCustomView() {
+    return true;
+  }
+
+  setOvertimeStartHour(overtimeStart) {
+    this.overtimeStart = overtimeStart;
   }
 
   getFormFields() {
@@ -103,11 +130,13 @@ class AttendanceAdapter extends ReactModalAdapterBase {
       return [
         ['id', { label: 'ID', type: 'hidden' }],
         ['time', { label: 'Time', type: 'datetime' }],
+        ['work_from_home', { label: 'Work from Home', type: 'switch', validation: 'none' }],
         ['note', { label: 'Note', type: 'textarea', validation: 'none' }],
       ];
     }
     return [
       ['id', { label: 'ID', type: 'hidden' }],
+      ['work_from_home', { label: 'Work from Home', type: 'switch', validation: 'none' }],
       ['note', { label: 'Note', type: 'textarea', validation: 'none' }],
     ];
   }
@@ -159,11 +188,36 @@ class AttendanceAdapter extends ReactModalAdapterBase {
   }
 
   showPunchDialog() {
-    modJs.renderForm();
+    if (this.hasOpenPunch) {
+      // Fetch open punch to get work_from_home value
+      const reqJson = JSON.stringify({ date: new Date().toISOString().slice(0, 19).replace('T', ' ') });
+      const callBackData = [];
+      callBackData.callBackData = [];
+      callBackData.callBackSuccess = 'getPunchSuccessCallback';
+      callBackData.callBackFail = 'getPunchFailCallBack';
+      this.customAction('getPunch', 'modules=attendance', reqJson, callBackData);
+    } else {
+      modJs.renderForm();
+    }
+  }
+
+  getPunchSuccessCallback(callBackData) {
+    const defaultValues = {};
+    if (callBackData && callBackData.work_from_home) {
+      defaultValues.work_from_home = callBackData.work_from_home;
+    }
+    modJs.renderForm(defaultValues);
   }
 
   getPunchFailCallBack(callBackData) {
-    this.showMessage('Error Occurred while Time Punch', callBackData);
+    // Friendly, non-alarming feedback for a correctable mistake (a gentle toast,
+    // not a red error modal). Rephrase the common overlap message.
+    const raw = (typeof callBackData === 'string') ? callBackData : '';
+    let text = raw || 'We couldn’t record that punch. Please try again.';
+    if (/overlap/i.test(raw)) {
+      text = 'That time overlaps with an entry you already have — please pick a different time.';
+    }
+    message.warning({ content: text, duration: 4, style: { marginTop: '8vh' } });
   }
 
   getClientDate(date) {

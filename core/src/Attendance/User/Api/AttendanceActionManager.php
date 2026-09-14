@@ -48,6 +48,7 @@ class AttendanceActionManager extends SubActionManager
     public function savePunch($req)
     {
 
+        $limitPunchInOutTimes = SettingsManager::getInstance()->getSetting('Attendance: Limit Punch in-Out Times') === '1';
         $useServerTime = SettingsManager::getInstance()->getSetting('Attendance: Use Department Time Zone');
         $currentEmployeeTimeZone = BaseService::getInstance()->getCurrentEmployeeTimeZone();
 
@@ -62,6 +63,31 @@ class AttendanceActionManager extends SubActionManager
 
         $req->date = $req->time;
 
+        // Serialize concurrent punch operations for this employee. The check-then-insert
+        // below is otherwise racy: two near-simultaneous punch-ins (double-click, mobile
+        // retry, two tabs) both see no open punch and both insert an open row, and the
+        // overlap re-check compares strtotime(NULL)=0 so it never catches them. A MySQL
+        // advisory lock scoped to the employee makes the whole read-modify-write atomic
+        // across requests. The lock auto-releases if the connection dies; we release it in
+        // the finally below on every return path.
+        $punchLockKey = 'ice_att_punch_'.$this->getCurrentProfileId();
+        $punchLockDb = $this->baseService->getDB();
+        $punchLockDb->Execute("SELECT GET_LOCK(?, ?)", array($punchLockKey, 10));
+
+        try {
+            return $this->savePunchGuarded($req, $limitPunchInOutTimes);
+        } finally {
+            $punchLockDb->Execute("SELECT RELEASE_LOCK(?)", array($punchLockKey));
+        }
+    }
+
+    /**
+     * The critical section of savePunch(), run while a per-employee advisory lock is held
+     * (see savePunch). Kept as a separate method purely so the lock can wrap every return
+     * path via try/finally without re-indenting the whole body.
+     */
+    private function savePunchGuarded($req, $limitPunchInOutTimes)
+    {
         //check if there is an open punch
         /* @var \Attendance\Common\Model\Attendance */
         $openPunch = $this->getPunch($req)->getData();
@@ -73,6 +99,21 @@ class AttendanceActionManager extends SubActionManager
         $dateTime = $req->date;
         $arr = explode(" ", $dateTime);
         $date = $arr[0];
+		$time = $arr[1];
+
+		if ($limitPunchInOutTimes) {
+			if ( empty($openPunch->in_time) ) {
+				$resp = $this->ensureAttendancePunchInTimeIsValid($time);
+				if ($resp->getStatus() === IceResponse::ERROR) {
+					return $resp;
+				}
+			} else {
+				$resp = $this->ensureAttendancePunchOutTimeIsValid($time);
+				if ($resp->getStatus() === IceResponse::ERROR) {
+					return $resp;
+				}
+			}
+		}
 
         $employee = $this->baseService->getElement('Employee', $this->getCurrentProfileId(), null, true);
 
@@ -138,6 +179,7 @@ class AttendanceActionManager extends SubActionManager
             }
             $openPunch->image_out = $req->image;
             $openPunch->out_ip = NetworkUtils::getClientIp();
+            $openPunch->work_from_home = !empty($req->work_from_home) ? 1 : 0;
             $this->baseService->audit(IceConstants::AUDIT_ACTION, "Punch Out \ time:".$openPunch->out_time);
         } else {
             $openPunch->in_time = $dateTime;
@@ -145,15 +187,44 @@ class AttendanceActionManager extends SubActionManager
             $openPunch->image_in = $req->image;
             $openPunch->employee = $employee->id;
             $openPunch->in_ip = NetworkUtils::getClientIp();
+            $openPunch->work_from_home = !empty($req->work_from_home) ? 1 : 0;
             $this->baseService->audit(IceConstants::AUDIT_ACTION, "Punch In \ time:".$openPunch->in_time);
         }
         $ok = $openPunch->Save();
-
         if (!$ok) {
-            LogManager::getInstance()->info($openPunch->ErrorMsg());
+            LogManager::getInstance()->error('Attendance Error:'.$openPunch->ErrorMsg());
             return new IceResponse(IceResponse::ERROR, "Error occurred while saving attendance");
         }
         return new IceResponse(IceResponse::SUCCESS, $openPunch);
+    }
+
+	private function ensureAttendanceTimeIsValid($time, $type = 'in') {
+		$settingPrefix = 'Attendance: Punch ' . ucfirst($type) . ' ';
+		$startTime = SettingsManager::getInstance()->getSetting($settingPrefix . 'Start Time');
+		$endTime = SettingsManager::getInstance()->getSetting($settingPrefix . 'End Time');
+		
+		// Convert time strings to DateTime objects for comparison, ignoring seconds
+		$punchTime = \DateTime::createFromFormat('H:i', substr($time, 0, 5));
+		$startDateTime = \DateTime::createFromFormat('H:i', $startTime);
+		$endDateTime = \DateTime::createFromFormat('H:i', $endTime);
+		
+		if ($punchTime >= $startDateTime && $punchTime <= $endDateTime) {
+			return new IceResponse(IceResponse::SUCCESS);
+		}
+
+		if ('in' === $type) {
+			return new IceResponse(IceResponse::ERROR, "You are only allowed to punch-in between $startTime and $endTime. Current time is $time");
+		}
+
+		return new IceResponse(IceResponse::ERROR, "You are only allowed to punch-out between $startTime and $endTime. Current time is $time");
+	}
+
+    private function ensureAttendancePunchInTimeIsValid($time) {
+        return $this->ensureAttendanceTimeIsValid($time);
+    }
+
+    private function ensureAttendancePunchOutTimeIsValid($time) {
+        return $this->ensureAttendanceTimeIsValid($time, 'out');
     }
 
     public function createPreviousAttendnaceSheet($req)

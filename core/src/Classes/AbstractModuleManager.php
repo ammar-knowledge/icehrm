@@ -269,7 +269,7 @@ abstract class AbstractModuleManager
         $classWithNamespace = $this->moduleObject['model_namespace']."\\".$className;
         BaseService::getInstance()->addModelClass($className, $classWithNamespace);
         /**
- * @var BaseModel $modelClass 
+ * @var BaseModel $modelClass
 */
         $modelClass = new $classWithNamespace();
         if ($modelClass->isCustomFieldsEnabled()) {
@@ -298,9 +298,9 @@ abstract class AbstractModuleManager
         $eh->Save();
     }
 
-    public function addCalculationHook($code, $name, $class, $method)
+    public function addCalculationHook($code, $name, $class, $method, $acceptAdditionalData = false, $additionalData = [])
     {
-        BaseService::getInstance()->addCalculationHook($code, $name, $class, $method);
+        BaseService::getInstance()->addCalculationHook($code, $name, $class, $method, $acceptAdditionalData, $additionalData);
     }
 
     public function install()

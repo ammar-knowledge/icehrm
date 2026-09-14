@@ -65,6 +65,10 @@ class CommonCustomFieldAdapter extends ReactCustomFieldAdapter {
     ];
   }
 
+  showViewButton() {
+    return false;
+  }
+
   setTypes(tables) {
     this.types = tables;
   }
@@ -160,6 +164,19 @@ class CommonCustomFieldAdapter extends ReactCustomFieldAdapter {
 
     return params;
   }
+
+  getHelpTitle() {
+    return this.gt('Custom Fields');
+  }
+
+  getHelpDescription() {
+    return this.gt('Here you can define custom fields to store additional information.');
+  }
+
+  getHelpLink() {
+    return 'https://icehrm.com/explore/docs/creating-a-custom-field-for-expense-requests/';
+  }
+
 }
 
 

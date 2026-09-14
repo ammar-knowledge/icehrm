@@ -3,27 +3,35 @@
  Developer: Thilina Hasantha (http://lk.linkedin.com/in/thilinah | https://github.com/thilinah)
  */
 
-import AdapterBase from '../../../api/AdapterBase';
-import FormValidation from '../../../api/FormValidation';
-import ReactModalAdapterBase from "../../../api/ReactModalAdapterBase";
-import {Avatar, Progress, Space, Tag, Typography } from "antd";
-import {CopyOutlined, DeleteOutlined, EditOutlined, MonitorOutlined, EnvironmentTwoTone} from "@ant-design/icons";
+import {
+  Avatar, Progress, Space, Tag, Typography,
+} from 'antd';
+import {
+  CopyOutlined, DeleteOutlined, EditOutlined, MonitorOutlined, EnvironmentTwoTone,
+  PushpinTwoTone, HighlightTwoTone,
+} from '@ant-design/icons';
+import React from 'react';
+import ReactModalAdapterBase from '../../../api/ReactModalAdapterBase';
+import AttendanceModal from './components/AttendanceModal';
 
 const { Text } = Typography;
-import React from "react";
 
 class AttendanceAdapter extends ReactModalAdapterBase {
   constructor(endPoint, tab, filter, orderBy) {
     super(endPoint, tab, filter, orderBy);
+    this.overtimeStart = 8;
   }
 
   getDataMapping() {
     return [
       'id',
+      'image',
       'employee',
       'in_time',
       'out_time',
       'hours',
+      'has_map_snapshot',
+      'work_from_home',
     ];
   }
 
@@ -38,20 +46,24 @@ class AttendanceAdapter extends ReactModalAdapterBase {
   }
 
   getTableColumns() {
-
     const dateRenderer = (text, record) => {
       if (text === '0000-00-00 00:00:00' || text === '' || text === undefined || text == null) {
         return '';
       }
       return (
         <>
-        <Text code>{Date.parse(text).toString('yyyy MMM d')}</Text>
-        <Text strong>{Date.parse(text).toString('HH:mm')}</Text>
+          <Text code>{Date.parse(text).toString('yyyy MMM d')}</Text>
+          <Text strong>{Date.parse(text).toString('HH:mm')}</Text>
         </>
       );
     };
 
     return [
+      {
+        title: '',
+        dataIndex: 'image',
+        render: (text, record) => <Avatar src={text} />,
+      },
       {
         title: 'Employee',
         dataIndex: 'employee',
@@ -71,16 +83,42 @@ class AttendanceAdapter extends ReactModalAdapterBase {
       },
       {
         title: 'Hours',
-        render: (text, record) => (<Progress
-          size="small"
-          steps={25}
-          percent={record.hours ? (record.hours / 8) * 100 : 0}
-          format={(percent, successPercent)=> record.hours + 'h / 8h'}
-        />),
+        render: (text, record) => (
+          <Progress
+            size="small"
+            steps={25}
+            percent={record.hours ? (record.hours / this.overtimeStart) * 100 : 0}
+            format={(percent, successPercent) => `${record.hours}h / ${this.overtimeStart}h`}
+          />
+        ),
         width: '25%',
         dataIndex: 'hours',
       },
+      {
+        title: 'Work Location',
+        dataIndex: 'work_from_home',
+        render: (text, record) => (
+          record.work_from_home === '1' || record.work_from_home === 1 ? '🏠 Home' : '🏢 Office'
+        ),
+        width: '120px',
+      },
     ];
+  }
+
+  setOvertimeStartHour(overtimeStart) {
+    this.overtimeStart = overtimeStart;
+  }
+
+  getTableChildComponents() {
+    return (<AttendanceModal />);
+  }
+
+  showElement(element) {
+    this.tableContainer.current.setCurrentElement(element);
+  }
+
+  keepTableVisibleWhileShowingCustomView() {
+    return true;
   }
 
   getFormFields() {
@@ -91,16 +129,23 @@ class AttendanceAdapter extends ReactModalAdapterBase {
       ['id', { label: 'ID', type: 'hidden' }],
       ['in_time', { label: 'Time-In', type: 'datetime' }],
       ['out_time', { label: 'Time-Out', type: 'datetime', validation: 'none' }],
+      ['work_from_home', { label: 'Work from Home', type: 'switch', validation: 'none' }],
       ['note', { label: 'Note', type: 'textarea', validation: 'none' }],
     ];
+  }
+
+  showViewButton() {
+    return true;
   }
 
   getFilters() {
     return [
       ['employee', {
-        label: 'Employee', type: 'select2', 'allow-null': false, 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+        label: 'Employee', type: 'select2', 'allow-null': true, validation: 'none', 'remote-source': ['Employee', 'id', 'first_name+last_name'],
       }],
-
+      ['date', {
+        label: 'Date', type: 'date', 'allow-null': true, validation: 'none',
+      }],
     ];
   }
 
@@ -116,9 +161,16 @@ class AttendanceAdapter extends ReactModalAdapterBase {
         )}
         {adapter.hasAccess('element')
         && (
-          <Tag color="blue" onClick={() => modJs.showPunchImages(record.id)} style={{ cursor: 'pointer' }}>
+          <Tag color="blue" onClick={() => modJs.viewElement(record.id)} style={{ cursor: 'pointer' }}>
             <MonitorOutlined />
             {` ${adapter.gt('View')}`}
+          </Tag>
+        )}
+        {adapter.hasAccess('element')
+        && record.has_map_snapshot && (
+          <Tag color="geekblue" onClick={() => modJs.showPunchImages(record.id)} style={{ cursor: 'pointer' }}>
+            <HighlightTwoTone />
+            {` ${adapter.gt('View Map')}`}
           </Tag>
         )}
         {adapter.hasAccess('delete') && adapter.showDelete
@@ -130,6 +182,10 @@ class AttendanceAdapter extends ReactModalAdapterBase {
         )}
       </Space>
     );
+  }
+
+  showAttendanceModal() {
+
   }
 
   isSubProfileTable() {
@@ -146,7 +202,6 @@ class AttendanceAdapter extends ReactModalAdapterBase {
   }
 
   getImagesSuccessCallback(callBackData) {
-
     $('#attendnaceCanvasPunchInTime').html('');
     $('#attendnaceCanvasPunchOutTime').html('');
     $('#punchInLocation').html('');
@@ -217,13 +272,14 @@ class AttendanceAdapter extends ReactModalAdapterBase {
       }
     }
 
+
     if (callBackData.note) {
       $('#attendanceNoteWrapper').show();
-      $('#attendanceNote').html(callBackData.note);
+      // Employee-entered punch note rendered in an admin's DOM — escape it.
+      $('#attendanceNote').text(callBackData.note);
     } else {
       $('#attendanceNoteWrapper').hide();
     }
-
   }
 
 
@@ -245,6 +301,7 @@ class AttendanceStatusAdapter extends ReactModalAdapterBase {
   getDataMapping() {
     return [
       'id',
+      'image',
       'employee',
       'status',
     ];
@@ -261,6 +318,11 @@ class AttendanceStatusAdapter extends ReactModalAdapterBase {
   getTableColumns() {
     return [
       {
+        title: '',
+        dataIndex: 'image',
+        render: (text, record) => <Avatar src={text} />,
+      },
+      {
         title: 'Employee',
         dataIndex: 'employee',
         sorter: true,
@@ -270,7 +332,7 @@ class AttendanceStatusAdapter extends ReactModalAdapterBase {
         dataIndex: 'status',
         render: (text, record) => (
           <Space>
-            <EnvironmentTwoTone twoToneColor={text === 'Not Clocked In'?'orange':'#52c41a'}/>
+            <EnvironmentTwoTone twoToneColor={text === 'Not Clocked In' ? 'orange' : '#52c41a'} />
             <Text>{text}</Text>
           </Space>
         ),

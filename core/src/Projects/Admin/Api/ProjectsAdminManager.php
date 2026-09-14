@@ -17,6 +17,9 @@ class ProjectsAdminManager extends AbstractModuleManager
 
     public function initializeUserClasses()
     {
+        if (defined('MODULE_TYPE') && MODULE_TYPE != 'admin') {
+            $this->addUserClass("EmployeeProject");
+        }
     }
 
     public function initializeFieldMappings()
@@ -31,6 +34,13 @@ class ProjectsAdminManager extends AbstractModuleManager
     public function setupModuleClassDefinitions()
     {
         $this->addModelClass('Project');
+        $this->addModelClass('Client');
+        $this->addModelClass('EmployeeProject');
+    }
+
+    public function setupRestEndPoints()
+    {
+        (new ProjectsApiController())->registerEndPoints();
     }
 
     public function getDashboardItemData()

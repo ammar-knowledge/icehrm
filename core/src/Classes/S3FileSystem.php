@@ -16,12 +16,15 @@ class S3FileSystem
 
         $this->key = $key;
         $this->secret = $secret;
-        $arr = array(
-                'key'    => $key,
-                'secret' => $secret,
-                'region' => AWS_REGION
-        );
-        $this->s3 = S3Client::factory($arr);
+
+		$this->s3 = S3Client::factory(array(
+			'credentials' => array(
+				'key'    => $key,
+				'secret' => $secret,
+			),
+			"region" => AWS_REGION,
+			"version" => "latest"
+		));
     }
 
     public function putObject($bucket, $key, $sourceFile, $acl)
@@ -45,12 +48,7 @@ class S3FileSystem
 
         LogManager::getInstance()->info("Response from s3:".print_r($res, true));
 
-        $result = $res->get('RequestId');
-        if (!empty($result)) {
-            return  $result;
-        }
-
-        return null;
+        return $this->processResponse($res);
     }
 
     public function deleteObject($bucket, $key)
@@ -72,13 +70,17 @@ class S3FileSystem
 
         LogManager::getInstance()->info("Response from s3:".print_r($res, true));
 
-        $result = $res->get('RequestId');
-        if (!empty($result)) {
-            return  $result;
-        }
-
-        return null;
+		return $this->processResponse($res);
     }
+
+	protected function processResponse($res) {
+		if (isset($res->toArray()['@metadata']['statusCode'])) {
+			$code = (int)$res->toArray()['@metadata']['statusCode'];
+			return $code >= 200 && $code < 500;
+		}
+
+		return null;
+	}
 
     public function generateExpiringURL($url, $expiresIn = 600)
     {
@@ -117,9 +119,11 @@ class S3FileSystem
         $ipad = str_repeat(chr(0x36), $blocksize);
         $opad = str_repeat(chr(0x5c), $blocksize);
         $hmac = pack(
-            'H*', sha1(
+            'H*',
+            sha1(
                 ($key ^ $opad) . pack(
-                    'H*', sha1(
+                    'H*',
+                    sha1(
                         ($key ^ $ipad) . $data
                     )
                 )

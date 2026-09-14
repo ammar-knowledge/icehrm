@@ -39,15 +39,18 @@ class SMTPEmailSender extends EmailSender
             $host = $this->settings->getSetting("Email: SMTP Host");
             $username = $this->settings->getSetting("Email: SMTP User");
             $password = $this->settings->getSetting("Email: SMTP Password");
-            $port = $this->settings->getSetting("Email: SMTP Port");
+            $port = (int)$this->settings->getSetting("Email: SMTP Port");
 
             if (empty($port)) {
-                $port = '25';
+                $port = 25;
             }
 
             if ($this->settings->getSetting("Email: SMTP Authentication Required") == "0") {
-                $auth = array('host' => $host,
-                    'auth' => false);
+				$auth = array(
+					'host' => $host,
+					'auth' => false,
+					'port' => $port,
+				);
             } else {
                 $auth = array('host' => $host,
                     'auth' => true,

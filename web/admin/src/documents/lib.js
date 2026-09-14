@@ -3,11 +3,16 @@
  Developer: Thilina Hasantha (http://lk.linkedin.com/in/thilinah | https://github.com/thilinah)
  */
 import React from 'react';
-import { Space, Tag, Form } from 'antd';
+import {
+  Space, Tag, Button, Alert, Typography, Card, Avatar,
+} from 'antd';
+const { Meta } = Card;
 import {
   EditOutlined, DeleteOutlined, InfoCircleOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import ReactifiedAdapterBase from '../../../api/ReactifiedAdapterBase';
+
+const { Link } = Typography;
 
 /**
  * DocumentAdapter
@@ -46,6 +51,10 @@ class DocumentAdapter extends ReactifiedAdapterBase {
   getHelpLink() {
     return 'https://icehrm.gitbook.io/icehrm/training-and-reviews/document-management';
   }
+
+  showViewButton() {
+    return false;
+  }
 }
 
 
@@ -59,6 +68,7 @@ class CompanyDocumentAdapter extends ReactifiedAdapterBase {
       'id',
       'name',
       'status',
+      'document_link',
     ];
   }
 
@@ -70,11 +80,23 @@ class CompanyDocumentAdapter extends ReactifiedAdapterBase {
     ];
   }
 
+  getViewModeEnabledFields() {
+    return ['details'];
+  }
+
+  getViewModeShowLabel() {
+    return false;
+  }
+
+  getFormLayout(viewOnly) {
+    return viewOnly ? 'vertical' : 'horizontal';
+  }
+
   getFormFields() {
     return [
       ['id', { label: 'ID', type: 'hidden' }],
       ['name', { label: 'Name', type: 'text', validation: '' }],
-      ['details', { label: 'Details', type: 'editor', validation: 'none' }],
+      ['details', { label: 'Description', type: 'textarea', validation: 'none' }],
       ['status', { label: 'Status', type: 'select', source: [['Active', 'Active'], ['Inactive', 'Inactive'], ['Draft', 'Draft']] }],
       ['attachment', { label: 'Attachment', type: 'fileupload' }],
       [
@@ -103,8 +125,20 @@ class CompanyDocumentAdapter extends ReactifiedAdapterBase {
     ];
   }
 
-  getWidth() {
-    return 1100;
+  showViewButton() {
+    return true;
+  }
+
+  getHelpTitle() {
+    return this.gt('Company Documents');
+  }
+
+  getHelpDescription() {
+    return this.gt('Company Documents are used to share announcements, policies, procedures, etc. with employees. These documents can be shared with specific employees or departments.');
+  }
+
+  getHelpLink() {
+    return 'https://icehrm.com/explore/docs/visibility-of-company-documents/';
   }
 }
 
@@ -116,9 +150,9 @@ class EmployeeDocumentAdapter extends ReactifiedAdapterBase {
   getDataMapping() {
     return [
       'id',
+      'image',
       'employee',
       'document',
-      'details',
       'date_added',
       'status',
       'attachment',
@@ -128,11 +162,41 @@ class EmployeeDocumentAdapter extends ReactifiedAdapterBase {
   getHeaders() {
     return [
       { sTitle: 'ID', bVisible: false },
+      { sTitle: '' },
       { sTitle: 'Employee' },
       { sTitle: 'Document' },
-      { sTitle: 'Details' },
       { sTitle: 'Date Added' },
       { sTitle: 'Status' },
+    ];
+  }
+
+  getTableColumns() {
+    return [
+      {
+        title: '',
+        dataIndex: 'image',
+        render: (text, record) => <Avatar src={text} />,
+      },
+      {
+        title: 'Employee',
+        dataIndex: 'employee',
+        sorter: true,
+      },
+      {
+        title: 'Document',
+        dataIndex: 'document',
+        sorter: true,
+      },
+      {
+        title: 'Date Added',
+        dataIndex: 'date_added',
+        sorter: true,
+      },
+      {
+        title: 'Status',
+        dataIndex: 'status',
+        sorter: true,
+      },
     ];
   }
 
@@ -150,8 +214,19 @@ class EmployeeDocumentAdapter extends ReactifiedAdapterBase {
       ['date_added', { label: 'Date Added', type: 'date', validation: '' }],
       ['valid_until', { label: 'Valid Until', type: 'date', validation: 'none' }],
       ['status', { label: 'Status', type: 'select', source: [['Active', 'Active'], ['Inactive', 'Inactive'], ['Draft', 'Draft']] }],
-      ['visible_to', { label: 'Visible To', type: 'select', source: [['Owner', 'Owner'], ['Owner Only', 'Owner Only'], ['Manager', 'Manager'], ['Admin', 'Admin']] }],
-      ['details', { label: 'Details', type: 'textarea', validation: 'none' }],
+      [
+        'visible_to', {
+          label: 'Visible To',
+          type: 'select',
+          source: [
+            ['Owner', 'Admin, Manager and the Employee'],
+            ['Owner Only', 'Only the Employee and an Admin'],
+            ['Manager', 'Only an Admin and the Manager of the Employee'],
+            ['Admin', 'Only an Admin'],
+          ],
+        },
+      ],
+      ['details', { label: 'Details', type: 'quill', validation: 'none' }],
       ['attachment', { label: 'Attachment', type: 'fileupload', validation: '' }],
     ];
   }
@@ -159,8 +234,12 @@ class EmployeeDocumentAdapter extends ReactifiedAdapterBase {
 
   getFilters() {
     return [
-      ['employee', { label: 'Employee', type: 'select2', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name', 'getActiveSubordinateEmployees'] }],
-      ['document', { label: 'Document', type: 'select2', 'allow-null': true, 'remote-source': ['Document', 'id', 'name'] }],
+      ['employee', {
+        label: 'Employee', type: 'select2', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name', 'getActiveSubordinateEmployees'],
+      }],
+      ['document', {
+        label: 'Document', type: 'select2', 'allow-null': true, 'remote-source': ['Document', 'id', 'name'],
+      }],
     ];
   }
 
@@ -175,6 +254,13 @@ class EmployeeDocumentAdapter extends ReactifiedAdapterBase {
     html = html.replace(/_attachment_/g, data[6]);
     html = html.replace(/_BASE_/g, this.baseUrl);
     return html;
+  }
+
+  // Native card-list action: download the record's attachment.
+  downloadAttachment(id, record) {
+    if (record && record.attachment && typeof window.download === 'function') {
+      window.download(record.attachment);
+    }
   }
 
   getTableActionButtonJsx(adapter) {
@@ -211,9 +297,13 @@ class EmployeeDocumentAdapter extends ReactifiedAdapterBase {
 class EmployeePayslipDocumentAdapter extends EmployeeDocumentAdapter {
   getFilters() {
     return [
-      ['employee', { label: 'Employee', type: 'select2', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name', 'getActiveSubordinateEmployees'] }],
+      ['employee', {
+        label: 'Employee', type: 'select2', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name', 'getActiveSubordinateEmployees'],
+      }],
     ];
   }
 }
 
-module.exports = { DocumentAdapter, CompanyDocumentAdapter, EmployeeDocumentAdapter, EmployeePayslipDocumentAdapter };
+module.exports = {
+  DocumentAdapter, CompanyDocumentAdapter, EmployeeDocumentAdapter, EmployeePayslipDocumentAdapter,
+};

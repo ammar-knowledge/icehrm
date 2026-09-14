@@ -128,7 +128,7 @@ class Uploader
 
         $localFile = BaseService::getInstance()->getDataDirectory().$result->getData();
         $uploadedFileSize = filesize($localFile);
-        if ($uploadFilesToS3.'' == '1' && !empty($uploadFilesToS3Key) && !empty($uploadFilesToS3Secret) 
+        if ($uploadFilesToS3.'' == '1' && !empty($uploadFilesToS3Key) && !empty($uploadFilesToS3Secret)
             && !empty($s3Bucket) && !empty($s3WebUrl)
         ) {
             $uploadName = CLIENT_NAME."/".$result->getData();
@@ -140,7 +140,7 @@ class Uploader
             $s3FileSys = new S3FileSystem($uploadFilesToS3Key, $uploadFilesToS3Secret);
             $res = $s3FileSys->putObject($s3Bucket, $uploadName, $localFile, 'authenticated-read');
 
-            LogManager::getInstance()->info("Response from s3 file sys:".print_r($res, true));
+            LogManager::getInstance()->debug("Response from s3 file sys:".print_r($res, true));
             unlink($localFile);
         }
 

@@ -5,21 +5,37 @@
 
 /* eslint-disable prefer-destructuring,no-restricted-globals */
 
-/* global Base64, modJs, nl2br, ga */
+/* global Base64, modJs, nl2br, ga, modJsList */
 /**
  * Author: Thilina Hasantha
  */
 
 import React from 'react';
-import {Avatar, Space, Tag} from 'antd';
 import {
-  CloudDownloadOutlined, DeleteOutlined, UndoOutlined, MonitorOutlined, LoginOutlined, EditOutlined, CopyOutlined,
+  Avatar, Space, Tag, message, Modal, Button,
+} from 'antd';
+import {
+  CloudDownloadOutlined,
+  DeleteOutlined,
+  UndoOutlined,
+  MonitorOutlined,
+  LoginOutlined,
+  EditOutlined,
+  CopyOutlined,
+  SyncOutlined,
+  CloudUploadOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import AdapterBase from '../../../api/AdapterBase';
-import SubAdapterBase from '../../../api/SubAdapterBase';
-import ReactLegacyModalAdapterBase from '../../../api/ReactLegacyModalAdapterBase';
-import ReactModalAdapterBase from '../../../api/ReactModalAdapterBase';
+import ReactDOM from 'react-dom';
+import ReactModalAdapterBase, { shellThemeWrap } from '../../../api/ReactModalAdapterBase';
+import IceDataPipe from '../../../api/IceDataPipe';
 import EmployeeProfile from './components/EmployeeProfile';
+import EmployeeWizardModal from './components/EmployeeWizard';
+import IceTable from '../../../components/IceTable';
+import EmployeeAdminView from './view';
+import {
+  UserAdapter,
+} from '../users/lib';
 
 
 class SubProfileEnabledAdapterBase extends ReactModalAdapterBase {
@@ -37,6 +53,59 @@ class EmployeeAdapter extends ReactModalAdapterBase {
     this.hiddenFields = {};
     this.tableFields = {};
     this.formOnlyFields = {};
+    this.employeeProfileRef = null;
+    this.employeeListRef = null;
+    this.employeeTopBar = null;
+    this.allowSwitchToEmployeeProfile = false;
+    // When on, the Employee Number is auto-generated: the field is read-only and
+    // prefilled with the next number when adding a new employee.
+    this.generateEmployeeNumbers = false;
+    this.employeeNumberPrefix = '';
+  }
+
+  setEmployeeNumberGeneration(enabled, prefix) {
+    this.generateEmployeeNumbers = !!enabled;
+    this.employeeNumberPrefix = prefix || '';
+  }
+
+  // When any module has multi-level approvals enabled, the employee profile shows
+  // an "Approvals" tab to manage approver1/2/3 (the supervisor is the read-only
+  // initial approver). The approver fields are removed from the edit form.
+  setMultiLevelApprovals(enabled) {
+    this.multiLevelApprovals = !!enabled;
+  }
+
+  // When auto-numbering is on, adding a new employee prefills the (read-only)
+  // Employee Number with the next number fetched from the server. Edit/view are
+  // unaffected. The backend regenerates authoritatively on save (handles any
+  // collision), so this is only the preview.
+  renderForm(object = null, viewOnly = false) {
+    const adding = object == null && !viewOnly;
+    if (adding && this.generateEmployeeNumbers && this.apiClient) {
+      this.apiClient.get('employees/next-employee-number')
+        .then((res) => {
+          const number = (res && res.data && res.data.number) || '';
+          super.renderForm(number ? { employee_id: number } : null, viewOnly);
+        })
+        .catch(() => super.renderForm(null, viewOnly));
+      return;
+    }
+    super.renderForm(object, viewOnly);
+  }
+
+  // Add/edit uses the guided employee wizard (a re-skinned step modal, same
+  // pattern as the Leave Type and Candidate wizards); the field set, dynamic
+  // field-name mappings, validation and save path are unchanged.
+  getStepFormModalComponent() {
+    return EmployeeWizardModal;
+  }
+
+  showViewButton() {
+    return true;
+  }
+
+  setAllowSwitchToEmployeeProfile(value) {
+    this.allowSwitchToEmployeeProfile = value;
   }
 
   isSubProfileTable() {
@@ -77,6 +146,112 @@ class EmployeeAdapter extends ReactModalAdapterBase {
     };
   }
 
+  reloadCurrentElement() {
+    this.reloadEmployee();
+  }
+
+  reloadEmployeeList() {
+    if (this.employeeListRef && this.employeeListRef.current) {
+      this.employeeListRef.current.reloadList();
+    }
+  }
+
+  initTable() {
+    if (this.tableInitialized) {
+      return false;
+    }
+    const tableDom = document.getElementById(`${this.tab}Table`);
+    if (tableDom) {
+      this.tableContainer = React.createRef();
+
+      ReactDOM.render(
+        shellThemeWrap(
+          <EmployeeAdminView
+            ref={this.tableContainer}
+            apiClient={this.apiClient}
+            ice={this}
+          />,
+        ),
+        tableDom,
+      );
+    }
+
+    this.tableInitialized = true;
+
+    return true;
+  }
+
+  setTableContainerFilterData(values) {
+    this.employeeTopBar.current.setFilterData(values);
+    this.reloadEmployeeList();
+  }
+
+  reloadEmployee(id) {
+    this.employeeProfileRef.current.reloadEmployee(id);
+  }
+
+  inviteEmployee() {
+    modJsList.tabUserInvitation.initFieldMasterData(() => {
+      modJsList.tabUserInvitation.renderForm();
+    });
+  }
+
+  add(object, getFunctionCallBackData, callGetFunction, successCallback) {
+    const that = this;
+    let callback;
+    let content;
+    if (!object.id) {
+      content = `${that.gt('Setting up employee profile for')} ${object.first_name} ${object.last_name} ...`;
+      callback = (serverData) => {
+        successCallback.apply(that, [serverData]);
+        message.success({
+          content: that.gt('New employee profile created. Please find the new employee profile at the end of the list'),
+          key: 'updateEmployeeProfile',
+          duration: 4,
+          style: {
+            marginTop: '9vh',
+          },
+        });
+        this.reloadEmployeeList();
+      };
+    } else {
+      content = `${that.gt('Updating the employee profile for')} ${object.first_name} ${object.last_name} ...`;
+      callback = (serverData) => {
+        successCallback.apply(that, [serverData]);
+        message.success({
+          content: that.gt('Employee profile updated'),
+          key: 'updateEmployeeProfile',
+          duration: 3,
+          style: {
+            marginTop: '9vh',
+          },
+        });
+        this.reloadEmployee();
+      };
+    }
+    message.loading({
+      content,
+      key: 'updateEmployeeProfile',
+      style: {
+        marginTop: '9vh',
+      },
+    });
+    super.add(object, getFunctionCallBackData, callGetFunction, callback);
+  }
+
+  addFailCallBack(callBackData, serverData) {
+    message.error({
+      content: this.gt('Error updating employee profile'),
+      key: 'updateEmployeeProfile',
+      duration: 3,
+      style: {
+        marginTop: '9vh',
+      },
+    });
+
+    super.addFailCallBack(callBackData, serverData);
+  }
+
   preProcessRemoteTableData(data, cell, id) {
     if (id === 1) {
       const tmp = '<img src="_img_" class="img-circle" style="width:45px;height: 45px;" alt="User Image">';
@@ -96,9 +271,9 @@ class EmployeeAdapter extends ReactModalAdapterBase {
       'employee_id',
       'first_name',
       'last_name',
-      //'mobile_phone',
+      // 'mobile_phone',
       'department',
-      //'gender',
+      // 'gender',
       'supervisor',
     ];
   }
@@ -182,7 +357,9 @@ class EmployeeAdapter extends ReactModalAdapterBase {
       title;
     const fields = [
       ['id', { label: 'ID', type: 'hidden', validation: '' }],
-      ['employee_id', { label: 'Employee Number', type: 'text', validation: '' }],
+      ['employee_id', {
+        label: 'Employee Number', type: 'text', validation: '', readonly: this.generateEmployeeNumbers,
+      }],
       ['first_name', { label: 'First Name', type: 'text', validation: '' }],
       ['middle_name', { label: 'Middle Name', type: 'text', validation: 'none' }],
       ['last_name', { label: 'Last Name', type: 'text', validation: '' }],
@@ -196,10 +373,12 @@ class EmployeeAdapter extends ReactModalAdapterBase {
       ['immigration_status', {
         label: 'Immigration Status', type: 'select2', 'allow-null': true, 'remote-source': ['ImmigrationStatus', 'id', 'name'],
       }],
-      ['ssn_num', { label: 'SSN/NRIC', type: 'text', validation: 'none' }],
-      ['nic_num', { label: 'NIC', type: 'text', validation: 'none' }],
-      ['other_id', { label: 'Other ID', type: 'text', validation: 'none' }],
-      ['driving_license', { label: 'Driving License No', type: 'text', validation: 'none' }],
+      ['tax_id', { label: 'Personal Tax ID', type: 'text', validation: 'none' }],
+      ['ssn_num', { label: 'Social Insurance', type: 'text', validation: 'none' }],
+      ['nic_num', { label: 'National ID', type: 'text', validation: 'none' }],
+      ['other_id', { label: 'Additional IDs', type: 'text', validation: 'none' }],
+      ['driving_license', { label: 'Driving License', type: 'text', validation: 'none' }],
+      ['health_insurance', { label: 'Health Insurance', type: 'text', validation: 'none' }],
 
       ['employment_status', { label: 'Employment Status', type: 'select2', 'remote-source': ['EmploymentStatus', 'id', 'name'] }],
       ['department', { label: 'Department', type: 'select2', 'remote-source': ['CompanyStructure', 'id', 'title'] }],
@@ -210,6 +389,9 @@ class EmployeeAdapter extends ReactModalAdapterBase {
       ['joined_date', { label: 'Joined Date', type: 'date', validation: '' }],
       ['confirmation_date', { label: 'Confirmation Date', type: 'date', validation: 'none' }],
       ['termination_date', { label: 'Termination Date', type: 'date', validation: 'none' }],
+      ['timezone', {
+        label: 'Time Zone', type: 'select2', 'allow-null': false, 'remote-source': ['Timezone', 'name', 'details', 'getTimezonesWithOffset'],
+      }],
       ['work_station_id', { label: 'Work Station Id', type: 'text', validation: 'none' }],
 
       ['address1', { label: 'Address Line 1', type: 'text', validation: 'none' }],
@@ -227,20 +409,13 @@ class EmployeeAdapter extends ReactModalAdapterBase {
       ['private_email', { label: 'Private Email', type: 'text', validation: 'emailOrEmpty' }],
 
       ['supervisor', {
-        label: 'Direct Supervisor', type: 'select2', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+        label: 'Direct Manager', type: 'select2', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name'],
       }],
       ['indirect_supervisors', {
-        label: 'Indirect Supervisors', type: 'select2multi', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+        label: 'Indirect Managers', type: 'select2multi', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name'],
       }],
-      ['approver1', {
-        label: 'First Level Approver', type: 'select2', 'allow-null': true, 'null-label': 'None', 'remote-source': ['Employee', 'id', 'first_name+last_name'],
-      }],
-      ['approver2', {
-        label: 'Second Level Approver', type: 'select2', 'allow-null': true, 'null-label': 'None', 'remote-source': ['Employee', 'id', 'first_name+last_name'],
-      }],
-      ['approver3', {
-        label: 'Third Level Approver', type: 'select2', 'allow-null': true, 'null-label': 'None', 'remote-source': ['Employee', 'id', 'first_name+last_name'],
-      }],
+      // Approver1/2/3 are managed under the employee profile's "Approvals" tab
+      // (shown when multi-level approvals are enabled), not this form.
       ['notes', {
         label: 'Notes',
         type: 'datagroup',
@@ -312,13 +487,15 @@ class EmployeeAdapter extends ReactModalAdapterBase {
       },
       {
         title: this.gt('Identification'),
-        description: this.gt('Personal Information'),
+        description: this.gt('Identification details'),
         fields: [
           'immigration_status',
+          'tax_id',
           'ssn_num',
           'nic_num',
           'other_id',
           'driving_license',
+          'health_insurance',
         ],
       },
       {
@@ -333,6 +510,7 @@ class EmployeeAdapter extends ReactModalAdapterBase {
           'confirmation_date',
           'termination_date',
           'work_station_id',
+          'timezone',
         ],
       },
       {
@@ -349,13 +527,10 @@ class EmployeeAdapter extends ReactModalAdapterBase {
       },
       {
         title: this.gt('Report'),
-        description: this.gt('Supervisors and reports'),
+        description: this.gt('To Whom this Employee Reports'),
         fields: [
           'supervisor',
           'indirect_supervisors',
-          'approver1',
-          'approver2',
-          'approver3',
           'notes',
         ],
       },
@@ -381,46 +556,77 @@ class EmployeeAdapter extends ReactModalAdapterBase {
         label: 'Department', type: 'select2', 'allow-null': true, 'null-label': 'All Departments', 'remote-source': ['CompanyStructure', 'id', 'title'],
       }],
       ['supervisor', {
-        label: 'Supervisor', type: 'select2', 'allow-null': true, 'null-label': 'Anyone', 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+        label: 'Manager', type: 'select2', 'allow-null': true, 'null-label': 'Anyone', 'remote-source': ['Employee', 'id', 'first_name+last_name'],
       }],
     ];
   }
 
-  getTableActionButtonJsx(adapter) {
-    return (text, record) => (
-      <Space size="middle">
-        <Tag color="orange" onClick={() => modJs.setAdminProfile(record.id)} style={{ cursor: 'pointer' }}>
-          <LoginOutlined />
-          {` ${adapter.gt('Login As')}`}
+  getEditButtonJsx() {
+    return (
+      <>
+        {this.props.loading
+        && (
+        <Tag icon={<SyncOutlined spin />} color="processing">
+          {this.props.adapter.gt('Edit')}
         </Tag>
-        {adapter.hasAccess('save') && adapter.showEdit
-        && (
-          <Tag color="green" onClick={() => modJs.edit(record.id)} style={{ cursor: 'pointer' }}>
-            <EditOutlined />
-            {` ${adapter.gt('Edit')}`}
-          </Tag>
         )}
-        {adapter.hasAccess('element')
+        {!this.props.loading
         && (
-          <Tag color="blue" onClick={() => modJs.viewElement(record.id)} style={{ cursor: 'pointer' }}>
-            <MonitorOutlined />
-            {` ${adapter.gt('View')}`}
-          </Tag>
+        <Tag
+          icon={<EditOutlined />}
+          color="processing"
+          onClick={() => modJs.edit(this.props.element.id)}
+        >
+          {this.props.adapter.gt('Edit')}
+        </Tag>
         )}
+      </>
+    );
+  }
+
+  getTableActionButtonJsx(adapter, id, loading) {
+    // Theme-aware action buttons (antd Buttons adapt to dark/light, unlike the
+    // old colour-filled Tags). Semantic emphasis: destructive = danger (red),
+    // the primary action (Edit) = ghost-primary, the rest = neutral.
+    const canSave = adapter.hasAccess('save');
+    return (
+      <Space size="small" wrap>
+        {this.user.employee !== id && modJs.allowSwitchToEmployeeProfile
+          && (
+          <Button size="small" icon={<LoginOutlined />} loading={loading} onClick={() => modJs.setAdminProfile(id)}>
+            {adapter.gt('Switch to Employee')}
+          </Button>
+          )}
+        {canSave
+          && (
+          <Button size="small" icon={<CloudUploadOutlined />} loading={loading} onClick={() => modJs.employeeProfileRef.current.updateProfileImage()}>
+            {adapter.gt('Upload Photo')}
+          </Button>
+          )}
+        {canSave
+          && (
+          <Button size="small" color="gold" variant="outlined" icon={<DeleteOutlined />} loading={loading} onClick={() => modJs.deleteProfileImage(id)}>
+            {adapter.gt('Remove Photo')}
+          </Button>
+          )}
+        {canSave && adapter.showEdit
+          && (
+          <Button size="small" type="primary" ghost icon={<EditOutlined />} loading={loading} onClick={() => modJs.edit(id)}>
+            {adapter.gt('Edit')}
+          </Button>
+          )}
         {adapter.hasAccess('delete') && adapter.showDelete
-        && (
-          <Tag color="volcano" onClick={() => modJs.terminateEmployee(record.id)} style={{ cursor: 'pointer' }}>
-            <DeleteOutlined />
-            {` ${adapter.gt('Deactivate')}`}
-          </Tag>
-        )}
-        {adapter.hasAccess('save')
-        && (
-          <Tag color="cyan" onClick={() => modJs.copyRow(record.id)} style={{ cursor: 'pointer' }}>
-            <CopyOutlined />
-            {` ${adapter.gt('Copy')}`}
-          </Tag>
-        )}
+          && (
+          <Button size="small" danger icon={<DeleteOutlined />} loading={loading} onClick={() => modJs.terminateEmployee(id)}>
+            {adapter.gt('Initiate Resignation')}
+          </Button>
+          )}
+        {canSave
+          && (
+          <Button size="small" icon={<CopyOutlined />} loading={loading} onClick={() => modJs.copyRow(id)}>
+            {adapter.gt('Copy')}
+          </Button>
+          )}
       </Space>
     );
   }
@@ -457,16 +663,20 @@ ${deleteBtn}
     $('#createUserModel').modal('hide');
   }
 
-  createUser() {
-    const data = {};
-    data.employee = this.lastSavedEmployee.id;
-    data.user_level = 'Employee';
-    data.email = this.lastSavedEmployee.work_email;
-    data.username = this.lastSavedEmployee.work_email.split('@')[0];
-    top.location.href = this.getCustomUrl(
-      `?g=admin&n=users&m=admin_Admin&action=new&object=${
-        Base64.encodeURI(JSON.stringify(data))}`,
-    );
+  createUser(employee) {
+    // Route the save through the token-authenticated REST endpoint
+    // (employees/{id}/create-user) rather than the CSRF-guarded saveUser action,
+    // since the SPA shell does not prime a per-form CSRF token here.
+    modJsList.tabUser.createUserEmployeeId = employee.id;
+    modJsList.tabUser.setSaveCompleteCallback(() => { modJs.reloadEmployee(employee.id); });
+    modJsList.tabUser.initFieldMasterData(() => {
+      modJsList.tabUser.renderForm(
+        {
+          employee: employee.id,
+          username: `${employee.first_name}.${employee.last_name}`.toLowerCase(),
+        },
+      );
+    });
   }
 
   deleteEmployee(id) {
@@ -501,51 +711,60 @@ ${deleteBtn}
 
 
   terminateEmployee(id) {
-    if (confirm('Are you sure you want to terminate this employee contract? You will still be able to access all details of this employee.')) {
-      // Terminate
-    } else {
-      return;
-    }
+    const that = this;
+    Modal.confirm({
+      title: this.gt('Initiate Resignation'),
+      icon: <ExclamationCircleOutlined />,
+      content: this.gt('Are you sure you want to terminate this employee contract? You will still be able to access all details of this employee.'),
+      okText: this.gt('Yes, Terminate'),
+      okType: 'danger',
+      cancelText: this.gt('Cancel'),
+      onOk() {
+        const params = {};
+        params.id = id;
+        const reqJson = JSON.stringify(params);
+        const callBackData = [];
+        callBackData.callBackData = [];
+        callBackData.callBackSuccess = 'terminateEmployeeSuccessCallback';
+        callBackData.callBackFail = 'terminateEmployeeFailCallback';
 
-    const params = {};
-    params.id = id;
-    const reqJson = JSON.stringify(params);
-    const callBackData = [];
-    callBackData.callBackData = [];
-    callBackData.callBackSuccess = 'terminateEmployeeSuccessCallback';
-    callBackData.callBackFail = 'terminateEmployeeFailCallback';
-
-    this.customAction('terminateEmployee', 'admin=employees', reqJson, callBackData);
+        that.customAction('terminateEmployee', 'admin=employees', reqJson, callBackData);
+      },
+    });
   }
 
 
   terminateEmployeeSuccessCallback(callBackData) {
-    this.showMessage('Success', 'Employee contract terminated. You can find terminated employee information under Terminated Employees menu.');
-    this.get([]);
+    this.showMessage('Success', 'Employee contract terminated. The employee moved to Resigned Employees section.');
+    this.reloadEmployeeList();
   }
 
 
   terminateEmployeeFailCallback(callBackData) {
-    this.showMessage('Error occured while terminating Employee', callBackData);
+    this.showMessage('Error occured while terminating contract', callBackData);
   }
 
 
   activateEmployee(id) {
-    if (confirm('Are you sure you want to re-activate this employee contract?')) {
-      // Terminate
-    } else {
-      return;
-    }
+    const that = this;
+    Modal.confirm({
+      title: this.gt('Re-activate Employee'),
+      icon: <ExclamationCircleOutlined />,
+      content: this.gt('Are you sure you want to re-activate this employee contract?'),
+      okText: this.gt('Yes, Activate'),
+      cancelText: this.gt('Cancel'),
+      onOk() {
+        const params = {};
+        params.id = id;
+        const reqJson = JSON.stringify(params);
+        const callBackData = [];
+        callBackData.callBackData = [];
+        callBackData.callBackSuccess = 'activateEmployeeSuccessCallback';
+        callBackData.callBackFail = 'activateEmployeeFailCallback';
 
-    const params = {};
-    params.id = id;
-    const reqJson = JSON.stringify(params);
-    const callBackData = [];
-    callBackData.callBackData = [];
-    callBackData.callBackSuccess = 'activateEmployeeSuccessCallback';
-    callBackData.callBackFail = 'activateEmployeeFailCallback';
-
-    this.customAction('activateEmployee', 'admin=employees', reqJson, callBackData);
+        that.customAction('activateEmployee', 'admin=employees', reqJson, callBackData);
+      },
+    });
   }
 
 
@@ -593,7 +812,7 @@ ${deleteBtn}
   }
 
   modEmployeeDeleteProfileImageCallBack(data) {
-    // top.location.href = top.location.href;
+    this.reloadEmployee();
   }
 }
 
@@ -602,6 +821,14 @@ ${deleteBtn}
  */
 
 class TerminatedEmployeeAdapter extends EmployeeAdapter {
+  getTableChildComponents() {
+    return (<EmployeeProfile />);
+  }
+
+  showElement(element) {
+    this.tableContainer.current.setCurrentElement(element);
+  }
+
   getDataMapping() {
     return [
       'id',
@@ -625,7 +852,7 @@ class TerminatedEmployeeAdapter extends EmployeeAdapter {
       { sTitle: 'Mobile' },
       { sTitle: 'Department' },
       { sTitle: 'Gender' },
-      { sTitle: 'Supervisor' },
+      { sTitle: 'Manager' },
     ];
   }
 
@@ -649,10 +876,91 @@ class TerminatedEmployeeAdapter extends EmployeeAdapter {
         dataIndex: 'department',
       },
       {
-        title: 'Supervisor',
+        title: 'Manager',
         dataIndex: 'supervisor',
       },
     ];
+  }
+
+  add(object, getFunctionCallBackData, callGetFunction, successCallback) {
+    const that = this;
+    if (callGetFunction === undefined || callGetFunction === null) {
+      // eslint-disable-next-line no-param-reassign
+      callGetFunction = true;
+    }
+    $(object).attr('a', 'add');
+    $(object).attr('t', this.table);
+    that.showLoader();
+    this.requestCache.invalidateTable(this.table);
+    $.post(this.moduleRelativeURL, object, (data) => {
+      if (data.status === 'SUCCESS') {
+        that.addSuccessCallBack(getFunctionCallBackData, data.object, callGetFunction, successCallback, that);
+      } else {
+        that.addFailCallBack(getFunctionCallBackData, data.object);
+      }
+    }, 'json')
+      .fail((e) => {
+        if (e.status === 403) {
+          that.showMessage('Access Forbidden', e.responseJSON.message);
+        }
+      })
+      .always(() => { that.hideLoader(); });
+    this.trackEvent('add', this.tab, this.table);
+  }
+
+  addFailCallBack(callBackData, serverData) {
+    try {
+      this.closePlainMessage();
+    } catch (e) {
+      // No need to report
+    }
+    this.showMessage('Error saving', serverData);
+    this.trackEvent('addFailed', this.tab, this.table);
+  }
+
+  // Add original method
+  initTable() {
+    this.initTableTopComponent();
+    if (this.tableInitialized) {
+      return false;
+    }
+    const tableDom = document.getElementById(`${this.tab}Table`);
+    if (tableDom) {
+      this.tableContainer = React.createRef();
+      let columns = this.getTableColumns();
+      if (this.hasAccess('save')
+        || this.hasAccess('delete')
+        || this.hasAccess('element')
+        || this.hasCustomButtons()
+      ) {
+        columns.push({
+          title: 'Actions',
+          key: 'actions',
+          render: this.getTableActionButtonJsx(this),
+        });
+      }
+
+      columns = columns.map((item) => {
+        item.title = this.gt(item.title);
+        return item;
+      });
+
+      ReactDOM.render(
+        <IceTable
+          ref={this.tableContainer}
+          reader={this.dataPipe}
+          columns={columns}
+          adapter={this}
+        >
+          {this.getTableChildComponents()}
+        </IceTable>,
+        tableDom,
+      );
+    }
+
+    this.tableInitialized = true;
+
+    return true;
   }
 
   getFilters() {
@@ -664,7 +972,7 @@ class TerminatedEmployeeAdapter extends EmployeeAdapter {
         label: 'Department', type: 'select2', 'allow-null': true, 'null-label': 'All Departments', 'remote-source': ['CompanyStructure', 'id', 'title'],
       }],
       ['supervisor', {
-        label: 'Supervisor', type: 'select2', 'allow-null': true, 'null-label': 'Anyone', 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+        label: 'Manager', type: 'select2', 'allow-null': true, 'null-label': 'Anyone', 'remote-source': ['Employee', 'id', 'first_name+last_name'],
       }],
     ];
   }
@@ -691,6 +999,13 @@ class TerminatedEmployeeAdapter extends EmployeeAdapter {
   getTableActionButtonJsx(adapter) {
     return (text, record) => (
       <Space size="middle">
+        {adapter.hasAccess('element')
+        && (
+          <Tag color="blue" onClick={() => modJs.viewElement(record.id)} style={{ cursor: 'pointer' }}>
+            <MonitorOutlined />
+            {` ${adapter.gt('View')}`}
+          </Tag>
+        )}
         <Tag color="cyan" onClick={() => modJs.activateEmployee(record.id)} style={{ cursor: 'pointer' }}>
           <UndoOutlined />
           {` ${adapter.gt('Activate')}`}
@@ -726,6 +1041,10 @@ class ArchivedEmployeeAdapter extends SubProfileEnabledAdapterBase {
     ];
   }
 
+  showViewButton() {
+    return true;
+  }
+
   getHeaders() {
     return [
       { sTitle: 'ID' },
@@ -735,7 +1054,7 @@ class ArchivedEmployeeAdapter extends SubProfileEnabledAdapterBase {
       { sTitle: 'Work Email' },
       { sTitle: 'Department' },
       { sTitle: 'Gender' },
-      { sTitle: 'Supervisor' },
+      { sTitle: 'Manager' },
     ];
   }
 
@@ -759,7 +1078,7 @@ class ArchivedEmployeeAdapter extends SubProfileEnabledAdapterBase {
         dataIndex: 'department',
       },
       {
-        title: 'Supervisor',
+        title: 'Manager',
         dataIndex: 'supervisor',
       },
     ];
@@ -768,7 +1087,9 @@ class ArchivedEmployeeAdapter extends SubProfileEnabledAdapterBase {
   getFormFields() {
     return [
       ['id', { label: 'ID', type: 'hidden', validation: '' }],
-      ['employee_id', { label: 'Employee Number', type: 'text', validation: '' }],
+      ['employee_id', {
+        label: 'Employee Number', type: 'text', validation: '', readonly: this.generateEmployeeNumbers,
+      }],
       ['first_name', { label: 'First Name', type: 'text', validation: '' }],
       ['middle_name', { label: 'Middle Name', type: 'text', validation: 'none' }],
       ['last_name', { label: 'Last Name', type: 'text', validation: '' }],
@@ -779,7 +1100,7 @@ class ArchivedEmployeeAdapter extends SubProfileEnabledAdapterBase {
       ['driving_license', { label: 'Driving License No', type: 'text', validation: 'none' }],
       ['department', { label: 'Department', type: 'select2', 'remote-source': ['CompanyStructure', 'id', 'title'] }],
       ['supervisor', {
-        label: 'Supervisor', type: 'select2', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+        label: 'Manager', type: 'select2', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name'],
       }],
     ];
   }
@@ -793,7 +1114,7 @@ class ArchivedEmployeeAdapter extends SubProfileEnabledAdapterBase {
         label: 'Department', type: 'select2', 'allow-null': true, 'null-label': 'All Departments', 'remote-source': ['CompanyStructure', 'id', 'title'],
       }],
       ['supervisor', {
-        label: 'Supervisor', type: 'select2', 'allow-null': true, 'null-label': 'Anyone', 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+        label: 'Manager', type: 'select2', 'allow-null': true, 'null-label': 'Anyone', 'remote-source': ['Employee', 'id', 'first_name+last_name'],
       }],
     ];
   }
@@ -1529,7 +1850,7 @@ class EmployeeCareerAdapter extends ReactModalAdapterBase {
         sorter: true,
       },
       {
-        title: 'Supervisor',
+        title: 'Manager',
         dataIndex: 'supervisor',
         sorter: true,
       },
@@ -1556,7 +1877,7 @@ class EmployeeCareerAdapter extends ReactModalAdapterBase {
       ['date_end', { label: 'End Date', type: 'date', validation: 'none' }],
       ['department', { label: 'Department', type: 'select2', 'remote-source': ['CompanyStructure', 'id', 'title'] }],
       ['supervisor', {
-        label: 'Supervisor', type: 'select2', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+        label: 'Manager', type: 'select2', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name'],
       }],
       ['employment_status', { label: 'Employment Status', type: 'select2', 'remote-source': ['EmploymentStatus', 'id', 'name'] }],
       ['details', { label: 'Details', type: 'textarea', validation: 'none' }],
@@ -1573,12 +1894,18 @@ class EmployeeCareerAdapter extends ReactModalAdapterBase {
         'allow-null': true,
         'remote-source': ['Employee', 'id', 'first_name+last_name', 'getActiveSubordinateEmployees'],
       }],
-      ['job_title', { label: 'Job Title', type: 'select2', 'allow-null': true, 'remote-source': ['JobTitle', 'id', 'name'] }],
-      ['department', { label: 'Department', type: 'select2', 'allow-null': true, 'remote-source': ['CompanyStructure', 'id', 'title'] }],
-      ['supervisor', {
-        label: 'Supervisor', type: 'select2', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+      ['job_title', {
+        label: 'Job Title', type: 'select2', 'allow-null': true, 'remote-source': ['JobTitle', 'id', 'name'],
       }],
-      ['employment_status', { label: 'Employment Status', type: 'select2', 'allow-null': true, 'remote-source': ['EmploymentStatus', 'id', 'name'] }],
+      ['department', {
+        label: 'Department', type: 'select2', 'allow-null': true, 'remote-source': ['CompanyStructure', 'id', 'title'],
+      }],
+      ['supervisor', {
+        label: 'Manager', type: 'select2', 'allow-null': true, 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+      }],
+      ['employment_status', {
+        label: 'Employment Status', type: 'select2', 'allow-null': true, 'remote-source': ['EmploymentStatus', 'id', 'name'],
+      }],
 
     ];
   }

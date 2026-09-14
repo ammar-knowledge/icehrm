@@ -3,8 +3,20 @@
  Developer: Thilina Hasantha (http://lk.linkedin.com/in/thilinah | https://github.com/thilinah)
  */
 
+import React from 'react';
 import ReactApproveAdminAdapter from '../../../api/ReactApproveAdminAdapter';
 import ReactIdNameAdapter from '../../../api/ReactIdNameAdapter';
+import { Avatar } from 'antd';
+
+// Overtime hours, computed on the client from the start/end datetimes (no server
+// field needed). Returns a 2-decimal string, or '' when times are missing/invalid.
+export const overtimeHours = (record) => {
+  if (!record || !record.start_time || !record.end_time) return '';
+  const start = new Date(String(record.start_time).replace(' ', 'T'));
+  const end = new Date(String(record.end_time).replace(' ', 'T'));
+  const h = (end.getTime() - start.getTime()) / 3600000;
+  return Number.isFinite(h) && h > 0 ? h.toFixed(2) : '';
+};
 
 /**
  * OvertimeCategoryAdapter
@@ -30,6 +42,7 @@ class EmployeeOvertimeAdminAdapter extends ReactApproveAdminAdapter {
   getDataMapping() {
     return [
       'id',
+      'image',
       'employee',
       'category',
       'start_time',
@@ -42,6 +55,7 @@ class EmployeeOvertimeAdminAdapter extends ReactApproveAdminAdapter {
   getHeaders() {
     return [
       { sTitle: 'ID', bVisible: false },
+      { sTitle: '' },
       { sTitle: 'Employee' },
       { sTitle: 'Category' },
       { sTitle: 'Start Time' },
@@ -53,6 +67,11 @@ class EmployeeOvertimeAdminAdapter extends ReactApproveAdminAdapter {
 
   getTableColumns() {
     return [
+      {
+        title: '',
+        dataIndex: 'image',
+        render: (text, record) => <Avatar src={text} />,
+      },
       {
         title: 'Employee',
         dataIndex: 'employee',
@@ -70,6 +89,10 @@ class EmployeeOvertimeAdminAdapter extends ReactApproveAdminAdapter {
       {
         title: 'End Time',
         dataIndex: 'end_time',
+      },
+      {
+        title: 'Hours',
+        render: (text, record) => overtimeHours(record),
       },
       {
         title: 'Project',
@@ -101,6 +124,31 @@ class EmployeeOvertimeAdminAdapter extends ReactApproveAdminAdapter {
         label: 'Project', type: 'select2', 'allow-null': true, 'null=label': 'none', 'remote-source': ['Project', 'id', 'name'],
       }],
       ['notes', { label: 'Notes', type: 'textarea', validation: 'none' }],
+    ];
+  }
+
+  getFilters() {
+    return [
+      ['employee', {
+        label: 'Employee', type: 'select2', 'allow-null': true, validation: 'none', 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+      }],
+      ['status', {
+        label: 'Status',
+        type: 'select',
+        'allow-null': true,
+        validation: 'none',
+        source: [
+          ['Pending', 'Pending'],
+          ['Approved', 'Approved'],
+          ['Rejected', 'Rejected'],
+          ['Processing', 'Processing'],
+          ['Cancellation Requested', 'Cancellation Requested'],
+          ['Cancelled', 'Cancelled'],
+        ],
+      }],
+      ['project', {
+        label: 'Project', type: 'select2', 'allow-null': true, validation: 'none', 'remote-source': ['Project', 'id', 'name'],
+      }],
     ];
   }
 }

@@ -7,6 +7,7 @@
 import AdapterBase from '../../../api/AdapterBase';
 import FormValidation from '../../../api/FormValidation';
 import TableEditAdapter from '../../../api/TableEditAdapter';
+import { escapeHtml } from '../../../api-common/htmlEscape';
 
 const ValidationRules = FormValidation.getValidationRules();
 
@@ -101,11 +102,17 @@ class EmployeeTimeSheetAdapter extends AdapterBase {
 
       // eslint-disable-next-line no-unused-vars
       dayClick(date, jsEvent, view, resourceObj) {
+        if (modJs.getTableName() === 'SubEmployeeTimeSheetAll' || object.status === 'Approved') {
+          return;
+        }
         modJs.renderFormByDate(date.format());
       },
 
       // eslint-disable-next-line no-unused-vars
       eventClick(calEvent, jsEvent, view) {
+        if (modJs.getTableName() === 'SubEmployeeTimeSheetAll' || object.status === 'Approved') {
+          return;
+        }
         modJs.renderFormTimeEntryCalender(calEvent.id);
       },
       eventRender(event, element) {
@@ -133,7 +140,10 @@ class EmployeeTimeSheetAdapter extends AdapterBase {
     $('#Qtsheet').show();
     $('#QtsheetDataButtons').show();
 
-    if (status === 'Submitted' || status === 'Approved') {
+    if (status === 'Submitted') {
+      $('.completeBtnTable').hide();
+      $('.saveBtnTable').show();
+    } else if (status === 'Approved') {
       $('.completeBtnTable').hide();
       $('.saveBtnTable').hide();
     } else {
@@ -142,6 +152,30 @@ class EmployeeTimeSheetAdapter extends AdapterBase {
     }
 
     modJs.get([]);
+    this.getLeaveMessage(id);
+  }
+
+  getLeaveMessage(timesheetId) {
+    const object = { id: timesheetId };
+
+    const reqJson = JSON.stringify(object);
+
+    const callBackData = [];
+    callBackData.callBackData = [];
+    callBackData.callBackSuccess = 'getLeaveMessageCallBack';
+    callBackData.callBackFail = 'getLeaveMessageCallBack';
+
+    this.customAction('getLeaveMessage', 'modules=time_sheets', reqJson, callBackData);
+  }
+
+  getLeaveMessageCallBack(callBackData) {
+    if (callBackData !== '') {
+      $('#LeaveDaysForTimeSheet').html(callBackData);
+      $('#LeaveDaysForTimeSheet').show();
+    } else {
+      $('#LeaveDaysForTimeSheet').html('');
+      $('#LeaveDaysForTimeSheet').hide();
+    }
   }
 
 
@@ -224,9 +258,19 @@ class EmployeeTimeSheetAdapter extends AdapterBase {
   }
 
   getTimeEntriesSuccessCallBack(callBackData) {
-    const entries = callBackData;
+    const entries = callBackData[0];
+    const employee = callBackData[1];
+    const timesheet = callBackData[2];
     let html = '';
-    const temp = '<tr><td><img class="tableActionButton" src="_BASE_images/delete.png" style="cursor:pointer;" rel="tooltip" title="Delete" onclick="modJsList[\'tabEmployeeTimeEntry\'].deleteRow(_id_);return false;"></img></td><td>_start_</td><td>_end_</td><td>_duration_</td><td>_project_</td><td>_details_</td>';
+    let temp = '';
+
+    if (modJs.getTableName() === 'SubEmployeeTimeSheetAll' || timesheet.status !== 'Approved') {
+      temp = '<tr><td><img class="tableActionButton" src="_BASE_images/delete.png" style="cursor:pointer;" rel="tooltip" title="Delete" onclick="modJsList[\'tabEmployeeTimeEntry\'].deleteRow(_id_);return false;"></img></td><td>_start_</td><td>_end_</td><td>_duration_</td><td>_project_</td><td>_details_</td>';
+    } else {
+      temp = '<tr><td></td><td>_start_</td><td>_end_</td><td>_duration_</td><td>_project_</td><td>_details_</td>';
+    }
+
+    $('.timesheet_user').hide();
 
     for (let i = 0; i < entries.length; i++) {
       try {
@@ -243,17 +287,26 @@ class EmployeeTimeSheetAdapter extends AdapterBase {
         if (entries[i].project === 'null' || entries[i].project == null || entries[i].project === undefined) {
           t = t.replace(/_project_/g, 'None');
         } else {
-          t = t.replace(/_project_/g, entries[i].project);
+          t = t.replace(/_project_/g, escapeHtml(entries[i].project));
         }
-        t = t.replace(/_project_/g, entries[i].project);
-        t = t.replace(/_details_/g, entries[i].details);
-        t = t.replace(/_id_/g, entries[i].id);
+        t = t.replace(/_project_/g, escapeHtml(entries[i].project));
+        t = t.replace(/_details_/g, escapeHtml(entries[i].details));
+        t = t.replace(/_id_/g, escapeHtml(entries[i].id));
         t = t.replace(/_BASE_/g, this.baseUrl);
         html += t;
       } catch (e) {
         // Do nothing
       }
     }
+
+    $('.employee_name').html(escapeHtml(employee.name));
+    $('.employee_image').attr('src', employee.image);
+    $('.timesheet_status_text').html(`Status: <b>${escapeHtml(timesheet.status)}</b>`);
+    $('.timesheet_total').html(`${escapeHtml(timesheet.total_time)}`);
+
+    setTimeout(() => {
+      $('.timesheet_user').show();
+    }, 500);
 
     $('.timesheet_entries_table_body').html(html);
     if (modJs.getTableName() === 'SubEmployeeTimeSheetAll' || `${this.needStartEndTime}` === '0') {
@@ -265,6 +318,12 @@ class EmployeeTimeSheetAdapter extends AdapterBase {
     } else {
       $('.submit_sheet').show();
       $('.add_time_sheet_entry').show();
+    }
+
+    if (modJs.getTableName() === 'SubEmployeeTimeSheetAll') {
+      $('.change_status').show();
+    } else {
+      $('.change_status').hide();
     }
 
     $('#EmployeeTimesheetBlock').fullCalendar('refetchEvents');
@@ -301,6 +360,30 @@ class EmployeeTimeSheetAdapter extends AdapterBase {
     this.showMessage('Error', callBackData);
   }
 
+  createNextWeekTimesheet(id) {
+    const object = { id };
+
+    const reqJson = JSON.stringify(object);
+
+    const callBackData = [];
+    callBackData.callBackData = [];
+    callBackData.callBackSuccess = 'createNextWeekTimesheetSuccessCallBack';
+    callBackData.callBackFail = 'createNextWeekTimesheetFailCallBack';
+
+    this.customAction('createNextWeekTimesheet', 'modules=time_sheets', reqJson, callBackData);
+  }
+
+  // eslint-disable-next-line no-unused-vars
+  createNextWeekTimesheetSuccessCallBack(callBackData) {
+    $('.tooltip').css('display', 'none');
+    $('.tooltip').remove();
+    this.get([]);
+  }
+
+  createNextWeekTimesheetFailCallBack(callBackData) {
+    this.showMessage('Error', callBackData);
+  }
+
   changeTimeSheetStatusWithId(id, status) {
     if (status === '' || status == null || status === undefined) {
       this.showMessage('Status Error', 'Please select a status');
@@ -334,23 +417,31 @@ class EmployeeTimeSheetAdapter extends AdapterBase {
   getActionButtonsHtml(id, data) {
     let html = '';
     if (`${this.needStartEndTime}` === '0') {
-      html = '<div style="width:100px;">'
+      html = '<div style="width:150px;">'
         + '<img class="tableActionButton" src="_BASE_images/view.png" style="cursor:pointer;" rel="tooltip" title="Edit Timesheet Entries" onclick="modJs.edit(_id_);return false;"></img>'
         + '<img class="tableActionButton" src="_BASE_images/edit.png" style="cursor:pointer;margin-left:15px;" rel="tooltip" title="Edit Timesheet Entries" onclick="modJs.quickEdit(_id_,\'_status_\',\'_sdate_\',\'_edate_\');return false;"></img>'
         + '_redoBtn_'
+        + '_nextBtn_'
         + '</div>';
     } else {
-      html = '<div style="width:80px;">'
+      html = '<div style="width:120px;">'
         + '<img class="tableActionButton" src="_BASE_images/edit.png" style="cursor:pointer;" rel="tooltip" title="Edit Timesheet Entries" onclick="modJs.edit(_id_);return false;"></img>'
         + '_redoBtn_'
+        + '_nextBtn_'
         + '</div>';
     }
 
     if (this.getTableName() === 'EmployeeTimeSheetAll') {
-      const redoBtn = '<img class="tableActionButton" src="_BASE_images/redo.png" style="cursor:pointer;margin-left:15px;" rel="tooltip" title="Create previous time sheet" onclick="modJs.createPreviousTimesheet(_id_);return false;"></img>';
+      const redoBtn = '<img class="tableActionButton" src="_BASE_images/prev_ts.png" style="cursor:pointer;margin-left:15px;" rel="tooltip" title="Create previous timesheet" onclick="modJs.createPreviousTimesheet(_id_);return false;"></img>';
       html = html.replace(/_redoBtn_/g, redoBtn);
     } else {
       html = html.replace(/_redoBtn_/g, '');
+    }
+    if (this.getTableName() === 'EmployeeTimeSheetAll') {
+      const nextBtn = '<img class="tableActionButton" src="_BASE_images/next_ts.png" style="cursor:pointer;margin-left:15px;" rel="tooltip" title="Create next week timesheet" onclick="modJs.createNextWeekTimesheet(_id_);return false;"></img>';
+      html = html.replace(/_nextBtn_/g, nextBtn);
+    } else {
+      html = html.replace(/_nextBtn_/g, '');
     }
     html = html.replace(/_id_/g, id);
     html = html.replace(/_sdate_/g, data[1]);
@@ -428,7 +519,7 @@ class SubEmployeeTimeSheetAdapter extends EmployeeTimeSheetAdapter {
     return [
       ['id', { label: 'ID', type: 'hidden' }],
       ['employee', {
-        label: 'Employee', type: 'select', 'allow-null': false, 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+        label: 'Employee', type: 'select', 'allow-null': false, 'remote-source': ['Employee', 'id', 'first_name+last_name', 'getActiveSubordinateEmployees'],
       }],
       ['date_start', { label: 'TimeSheet Start Date', type: 'date', validation: '' }],
       ['date_end', { label: 'TimeSheet Start Date', type: 'date', validation: '' }],
@@ -507,8 +598,8 @@ class SubEmployeeTimeSheetAdapter extends EmployeeTimeSheetAdapter {
 
     html = html.replace(/_id_/g, id);
     html = html.replace(/_BASE_/g, this.baseUrl);
-    html = html.replace(/_sdate_/g, data[1]);
-    html = html.replace(/_edate_/g, data[2]);
+    html = html.replace(/_sdate_/g, `${data[1]} from ${data[2]}`.replaceAll('\'', ' '));
+    html = html.replace(/_edate_/g, data[3]);
     html = html.replace(/_status_/g, data[4]);
     return html;
   }
@@ -542,7 +633,7 @@ class SubEmployeeTimeSheetAdapter extends EmployeeTimeSheetAdapter {
   getFilters() {
     return [
       ['employee', {
-        label: 'Employee', type: 'select2', 'allow-null': true, 'null-label': 'All Employees', 'remote-source': ['Employee', 'id', 'first_name+last_name'],
+        label: 'Employee', type: 'select2', 'allow-null': true, 'null-label': 'All Employees', 'remote-source': ['Employee', 'id', 'first_name+last_name', 'getActiveSubordinateEmployees'],
       }],
       ['status', {
         label: 'Status', type: 'select', 'allow-null': true, 'null-label': 'All', source: [['Submitted', 'Submitted'], ['Pending', 'Pending'], ['Approved', 'Approved'], ['Rejected', 'Rejected']],
@@ -919,7 +1010,7 @@ class QtsheetAdapter extends TableEditAdapter {
       aaData: data,
       aoColumns: headers,
       bSort: false,
-      iDisplayLength: 100,
+      iDisplayLength: 500,
       iDisplayStart: start,
     };
 

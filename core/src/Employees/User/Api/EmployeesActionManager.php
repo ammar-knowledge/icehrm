@@ -18,6 +18,7 @@ use Company\Common\Model\CompanyStructure;
 use Employees\Common\Model\Employee;
 use Users\Common\Model\User;
 use Utils\LogManager;
+use Utils\SessionUtils;
 
 class EmployeesActionManager extends SubActionManager
 {
@@ -32,8 +33,8 @@ class EmployeesActionManager extends SubActionManager
 
         if ($this->user->user_level == 'Admin') {
             $id = $req->id;
-        } elseif ($obj->getUserOnlyMeAccessField() == 'id' 
-            && SettingsManager::getInstance()->getSetting('System: Company Structure Managers Enabled') == 1 
+        } elseif ($obj->getUserOnlyMeAccessField() == 'id'
+            && SettingsManager::getInstance()->getSetting('System: Company Structure Managers Enabled') == 1
             && CompanyStructure::isHeadOfCompanyStructure($cempObj->department, $cemp)
         ) {
             $subordinates = $obj->Find("supervisor = ?", array($cemp));
@@ -88,9 +89,6 @@ class EmployeesActionManager extends SubActionManager
         $subordinates = $subordinate->Find("supervisor = ?", array($employee->id));
         $employee->subordinates = $subordinates;
 
-        $fs = FileService::getInstance();
-        $employee = $fs->updateSmallProfileImage($employee);
-
         if (!empty($employee->birthday)) {
             $employee->birthday = date("F jS, Y", strtotime($employee->birthday));
         }
@@ -109,6 +107,19 @@ class EmployeesActionManager extends SubActionManager
         } catch (\Exception $e) {
             LogManager::getInstance()->notifyException($e);
         }
+
+		$fs = FileService::getInstance();
+		$employee = $fs->updateSmallProfileImage($employee);
+
+		// Add supervisor image if supervisor exists
+		if ( isset($employee->supervisor)) {
+			$supervisor = new Employee();
+			$supervisor->Load("id = ?", [$employee->supervisor]);
+			$supervisor = $fs->updateSmallProfileImage($supervisor);
+			if (!empty($supervisor->id) && !empty($supervisor->image)) {
+				$employee->supervisor_image = $supervisor->image;
+			}
+		}
 
         if (empty($employee->id)) {
             return new IceResponse(IceResponse::ERROR, $employee);
@@ -137,6 +148,13 @@ class EmployeesActionManager extends SubActionManager
 
     public function changePassword($req)
     {
+		$csrf = SessionUtils::getSessionObject('csrf-password');
+		if (empty($csrf) || $csrf !== $req->csrf) {
+			return new IceResponse(
+				IceResponse::ERROR,
+				"Error validating CSRF token."
+			);
+		}
 
         if ($this->getCurrentProfileId() != $this->user->employee || empty($this->user->employee)) {
             return new IceResponse(IceResponse::ERROR, "You are not allowed to change passwords of other employees");
@@ -162,27 +180,54 @@ class EmployeesActionManager extends SubActionManager
         if (!$ok) {
             return new IceResponse(IceResponse::ERROR, $user->ErrorMsg());
         }
+        // A password change clears any failed-attempt lock.
+        PasswordManager::resetFailedLogins($user);
 
         return new IceResponse(IceResponse::SUCCESS, []);
     }
 
     public function getLoginCode($req)
     {
+        // rawurlencode both values: they come from the request and were previously
+        // interpolated raw, so either could inject extra query parameters.
         $url = sprintf(
             'https://icehrm.com/sapi/login-code?url=%s&token=%s',
-            $req->url,
-            $req->token
+            rawurlencode($req->url),
+            rawurlencode($req->token)
         );
 
+        // This request carries the instance token, so the certificate must be verified —
+        // except in development, which targets the staging server (see
+        // BaseService::shouldVerifyOutboundTls()).
+        $verifyTls = BaseService::shouldVerifyOutboundTls();
         $arrContextOptions = [
             "ssl"=>array(
-                "verify_peer"=>false,
-                "verify_peer_name"=>false,
+                "verify_peer"=>$verifyTls,
+                "verify_peer_name"=>$verifyTls,
             ),
         ];
 
         $data = file_get_contents($url, false, stream_context_create($arrContextOptions));
 
         return new IceResponse(IceResponse::SUCCESS, json_decode($data, true));
+    }
+
+    /**
+     * Reset (regenerate) the current user's REST API access token. The old token
+     * stops working immediately; returns a fresh JWT that wraps the new token so
+     * the API Access tab can show it right away.
+     */
+    public function resetApiToken($req)
+    {
+        $user = BaseService::getInstance()->getCurrentDBUser();
+        if (empty($user) || empty($user->id)) {
+            return new IceResponse(IceResponse::ERROR, "Not authenticated");
+        }
+
+        \Classes\RestApiManager::getInstance()->resetAccessTokenForUser($user);
+
+        $jwt = (new \Classes\JwtTokenService())->create(15552000);
+
+        return new IceResponse(IceResponse::SUCCESS, array('jwtToken' => $jwt));
     }
 }

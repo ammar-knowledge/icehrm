@@ -48,6 +48,22 @@ class SkillAdapter extends ReactModalAdapterBase {
       },
     ];
   }
+
+  showViewButton() {
+    return false;
+  }
+
+  getHelpTitle() {
+    return this.gt('Skills');
+  }
+
+  getHelpDescription() {
+    return this.gt('Here you can define the different types of skills that you can add under each employee profile.');
+  }
+
+  getHelpLink() {
+    return 'https://icehrm.com/explore/docs/job-details-and-qualifications-set-up/';
+  }
 }
 
 
@@ -92,6 +108,22 @@ class EducationAdapter extends ReactModalAdapterBase {
         dataIndex: 'description',
       },
     ];
+  }
+
+  showViewButton() {
+    return false;
+  }
+
+  getHelpTitle() {
+    return this.gt('Education');
+  }
+
+  getHelpDescription() {
+    return this.gt('Here you can define the different levels of education that you can add under each employee profile.');
+  }
+
+  getHelpLink() {
+    return 'https://icehrm.com/explore/docs/job-details-and-qualifications-set-up/';
   }
 }
 
@@ -138,6 +170,22 @@ class CertificationAdapter extends ReactModalAdapterBase {
       },
     ];
   }
+
+  showViewButton() {
+    return false;
+  }
+
+  getHelpTitle() {
+    return this.gt('Certifications');
+  }
+
+  getHelpDescription() {
+    return this.gt('Here you can define the different types of certifications that you can add under each employee profile.');
+  }
+
+  getHelpLink() {
+    return 'https://icehrm.com/explore/docs/job-details-and-qualifications-set-up/';
+  }
 }
 
 
@@ -183,6 +231,11 @@ class LanguageAdapter extends ReactModalAdapterBase {
       },
     ];
   }
+
+  showViewButton() {
+    return false;
+  }
+
 }
 
 module.exports = {

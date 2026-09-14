@@ -1,132 +1,199 @@
 IceHrm
 ===========
-[![Build Status](https://travis-ci.org/gamonoid/icehrm.svg?branch=master)](https://travis-ci.org/gamonoid/icehrm)
 
-IceHrm is an [HRM software](https://icehrm.com) which enable companies to manage employee details and HR workflows.
+IceHrm is a comprehensive [HRM software](https://icehrm.com) that enables companies to manage employee information, track attendance, handle leave requests, and streamline HR workflows.
 
-- Checkout IceHrm without installing: [IceHrm Demo](https://icehrm.com/icehrm-demo)
-- Get a Mananged IceHrm Installation: [IceHrm Cloud](https://icehrm.com/icehrm-cloud)
-- Self Host a Feature Rich Version of IceHrm: [IceHrmPro](https://icehrm.com/purchase-icehrmpro)
+### Core HR Management
 
-![](docs/images/icehrm-employee-list.png)
-&nbsp;&nbsp;&nbsp;&nbsp;
-![](docs/images/icehrm-dashboard.png)
+| Employee Management | Company Structure |
+|:-------------------:|:-----------------:|
+| ![Employee Management](docs/images/employees-list.png) | ![Company Structure](docs/images/company-structure-org-chart.png) |
 
-## Installation
+Centralized employee records — personal details, job history, qualifications, documents
+and dependents — with a company structure you can browse as a list or an org chart.
 
-### Using Docker
+### Leave Management
 
-- Install docker on Mac, Windows or Linux [https://docs.docker.com/get-docker/](https://docs.docker.com/get-docker/)
-- Download the [latest version of IceHrm](https://github.com/gamonoid/icehrm/releases/latest) and extract it.
-- Alternatively you can cone the repo `git clone https://github.com/gamonoid/icehrm.git`
-```
-cd icehrm
-npm run setup
-npm run docker:build
-npm run docker:start
-```
+| Apply and Track Leave | Team Leave Calendar |
+|:---------------------:|:-------------------:|
+| ![Apply Leave](docs/images/employee-leave-apply.png) | ![Leave Calendar](docs/images/leave-calendar.png) |
 
-![](docs/images/IceHrm-installation.gif)
+Employees apply for leave and see their entitlement, pending and approved requests in one
+place; managers approve or reject from the same screen. Administrators define leave types,
+the leave period, the work week and public holidays, and can post manual leave adjustments.
+The calendar lays the whole team's absences across the month so clashes are obvious before
+anything is approved.
 
-- Visit [http://localhost:3128/](http://localhost:3128/) and login using `admin` as username and password.
-- Visit [http://localhost:3130/](http://localhost:3130/) to access phpmyadmin.
-- All user uploaded files are stored under `icehrm/docker/production/app_data`
+### Time & Attendance
 
-### Installation (without docker)
-- Please check [Installation guide](https://icehrm.com/explore/docs/installation/).
+| Attendance | Overtime |
+|:----------:|:--------:|
+| ![Attendance](docs/images/attendance-admin.png) | ![Overtime](docs/images/overtime-admin.png) |
 
-### Upgrade from Previous Versions
+Punch in and out with a full attendance history per employee, and an overtime request and
+approval flow on top of it.
 
-Refer: [https://icehrm.com/explore/docs/upgrade-icehrmpro/](https://icehrm.com/explore/docs/upgrade-icehrmpro/)
+### Projects & Timesheets
 
+| Clients and Projects | Timesheets |
+|:--------------------:|:----------:|
+| ![Projects](docs/images/projects-list.png) | ![Timesheets](docs/images/time-sheets-personal.png) |
 
-## Setup Development Environment
-```
+Track clients and projects, assign employees to them, and capture weekly timesheets with a
+per-project breakdown and an approval step.
+
+### Employee Self-Service
+
+| Employee Dashboard | Staff Directory |
+|:------------------:|:---------------:|
+| ![Employee Dashboard](docs/images/my-dashboard.png) | ![Directory](docs/images/employee-directory.png) |
+
+Every employee gets their own dashboard — leave balances, upcoming holidays, pending
+requests — plus a searchable directory of colleagues.
+
+## Getting Started
+
+> **💡 Prefer not to self-host?** IceHrm is available as a fully managed service at [icehrm.com](https://icehrm.com) — no installation or maintenance required.
+
+<table>
+<tr>
+<td align="center" colspan="2">
+
+### How do you want to use IceHrm?
+
+</td>
+</tr>
+<tr>
+<td align="center" width="50%">
+
+### 🚀 PRODUCTION
+**Deploy for your organization**
+
+⬇️
+
+</td>
+<td align="center" width="50%">
+
+### 🛠️ DEVELOPMENT
+**Contribute or extend IceHrm**
+
+⬇️
+
+[Setup Development Environment](docs/setup-development-environment.md)
+
+</td>
+</tr>
+</table>
+
+---
+
+## Production Deployment
+
+> **Choose your deployment method:**
+
+<table>
+<tr>
+<td align="center" width="50%">
+
+### 🐳 Option A: Docker
+
+**Fastest way to get started**
+
+Ideal for quick deployments and containerized environments.
+
+➡️ [**Docker Quick Start Guide**](docs/docker-quickstart.md)
+
+</td>
+<td align="center" width="50%">
+
+### 🖥️ Option B: Linux VPS
+
+**Traditional server deployment**
+
+Full control over your environment and custom configurations.
+
+➡️ [**Linux Installation Guide**](https://icehrm.com/docs/installation/install-linux)
+
+</td>
+</tr>
+</table>
+
+### Docker in one command
+
+```bash
 git clone https://github.com/gamonoid/icehrm.git
 cd icehrm
-docker-compose up -d
-```
-- Visit [http://localhost:9080/](http://localhost:9080/) and login using `admin` as username and password.
-- Watch this for more detailed instructions: [https://www.youtube.com/watch?v=sz8OV_ON6S8](https://www.youtube.com/watch?v=sz8OV_ON6S8)
-
-### Extend IceHrm with custom Extensions
-- Inorder to create an admin extension run
-```
-php ice create:extension sample admin
+docker compose up -d --build
 ```
 
-![](docs/images/icehrm-create-ext.gif)
+The build compiles the frontend assets inside the image, so the first run takes a
+few minutes. When it finishes, IceHrm is at
+[http://localhost:5555](http://localhost:5555) — sign in with `admin` / `admin` and
+change that password before exposing the installation.
+
+The stack is three containers: the application, a MySQL 8 database seeded from
+`docker/init.sql`, and a worker for background jobs. Settings and uploads live in
+named volumes (`icehrm-app-data`, `icehrm-mysql-data`) and survive a rebuild. To
+change the port, base URL or database credentials, copy `docker-prod.env.example`
+to `.env` first — see the [Docker Quick Start Guide](docs/docker-quickstart.md).
 
 
-- Refresh IceHrm to see a new menu item called `Sample Admin`
-- The extension code can br found under `icehrm/extensions/sample/admin`
-- Refer: [https://icehrm.com/explore/docs/extensions/](https://icehrm.com/explore/docs/extensions/) for more details.
+### Keeping an installation current
 
-### Building frontend assets
+From v36, IceHrm updates itself. Administrators see a banner on the dashboard when
+a newer release is published; the updater downloads it, backs the current version
+aside before replacing anything, preserves `app/config.php`, `app/data/` and any
+extensions you installed yourself, and can roll back from the same screen if the
+application does not come back.
 
-- When ever you have done a change to JavaScript or CSS files in icehrm/web you need to rebuild the frontend
-- First make sure you have all the dependencies (just doing this once is enough)
-```
-cd icehrm/web
-npm install
-cd ..
-npm install
-```
+---
 
-- Build assets during development
-```
-gulp clean
-gulp
-```
+## After Installation
 
-- Build assets for production
-```
-gulp clean
-gulp --eprod
-```
+<table>
+<tr>
+<td align="center">
 
-- Build extensions
-```
-gulp ejs --xextension_name/admin
-```
+### ✅ IceHrm is Running!
 
-### Debugging code with psysh
-You can run psysh inside the icehrm web docker container to manually debug the code.
-- Start Psysh console
-``` 
-docker compose up -d
-docker exec -it icehrm-icehrm-1 /bin/sh
-./psysh -c ./.config/psysh/config.php
-```
-This will open a psysh console. You can instantiate any IceHrm class and debug it.
-Here is an example of creating an employee object and loading an employee from the database.
-```
-$emp = new \Employees\Common\Model\Employee();
-$emp->Load('id = ?',[1]);
-var_dump($emp);
-```
+⬇️
 
-### Running tests (Docker)
+</td>
+</tr>
+</table>
 
-- Run e2e (cypress) tests
+<table>
+<tr>
+<td align="center">
 
-```
-docker-compose -f docker-compose-testing.yaml up --exit-code-from cypress
-```
-or
-```
-docker-compose -f docker-compose-testing.yaml up --exit-code-from cypress --build --force-recreate
-```
+### Step 1: Connect to IceHrm.com
 
-- When you are ready to push your changes to production, make sure to build the production images
-```
-docker-compose -f docker-compose-prod.yaml up -d --build
-```
+Link your installation to unlock extensions and receive updates.
 
-### Useful Links
-* IceHrm Opensource Blog: [http://icehrm.org](http://icehrm.org)
-* IceHrm Cloud Hosting: [https://icehrm.com](https://icehrm.com)
-* IceHrm Documentation (Opensource and Commercial): [https://icehrm.com/explore/docs/](https://icehrm.com/explore/docs/)
-* IceHrm Blog: [https://icehrm.com/blog](http://icehrm.com/blog)
-* Purchase IceHrm Pro: [https://icehrm.com/modules.php](https://icehrm.com/modules.php)
-* Report Issues: [https://github.com/gamonoid/icehrm/issues](https://github.com/gamonoid/icehrm/issues)
+➡️ [**Connection Guide**](https://icehrm.com/docs/extension-management/connecting-to-icehrm)
+
+⬇️
+
+</td>
+</tr>
+<tr>
+<td align="center">
+
+### Step 2: Install Extensions
+
+Expand IceHrm with powerful modules for your business needs.
+
+➡️ [**Extension Installation Guide**](https://icehrm.com/docs/extension-management/purchasing-extensions)
+
+⬇️
+
+</td>
+</tr>
+</table>
+
+---
+
+## Resources
+
+- [Official Documentation](https://icehrm.com/docs/)
+- [Community Support](https://github.com/gamonoid/icehrm/issues)

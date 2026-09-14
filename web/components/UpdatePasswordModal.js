@@ -132,7 +132,7 @@ class UpdatePasswordModal extends React.Component {
     }
 
     updatePassword = (oldPassword, newPassword) => {
-        const req = { current: oldPassword ? oldPassword : '', pwd: newPassword };
+        const req = { current: oldPassword ? oldPassword : '', pwd: newPassword, csrf: window.passwordCSRF };
         const reqJson = JSON.stringify(req);
 
         const callBackData = [];
@@ -184,7 +184,7 @@ class UpdatePasswordModal extends React.Component {
 
         return (
             <Modal
-                visible={this.props.visible}
+                open={this.props.visible}
                 title="Update Password"
                 onOk={this.handleOk}
                 onCancel={this.handleCancel}

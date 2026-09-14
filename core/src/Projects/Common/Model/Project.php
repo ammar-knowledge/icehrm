@@ -9,22 +9,25 @@
 namespace Projects\Common\Model;
 
 use Classes\BaseService;
+use Classes\Editor\DeleteEditorContent;
 use Classes\ModuleAccess;
 use Classes\SettingsManager;
-use Clients\Common\Model\Client;
+use Projects\Common\Model\Client;
+use EditorUser\EditorService;
 use Model\BaseModel;
 
 class Project extends BaseModel
 {
+	use DeleteEditorContent;
     public $table = 'Projects';
     public function getAdminAccess()
     {
-        return array("get","element","save","delete");
+        return array("get","element","add","save","delete");
     }
 
     public function getManagerAccess()
     {
-        return array("get","element","save","delete");
+        return array("get","element","add","save","delete");
     }
 
     public function getUserAccess()
@@ -96,4 +99,49 @@ class Project extends BaseModel
             new ModuleAccess('projects', 'admin'),
         ];
     }
+
+    public function isCustomFieldsEnabled()
+    {
+        return true;
+    }
+
+	public function postProcessGetData($entry)
+	{
+		if (!class_exists('\EditorUser\EditorService')) {
+			return '';
+		}
+		$entry->document_link = EditorService::getDocumentLink($entry->id, 'Project', 'project_document', $entry, 'admin_Admin');
+		return $entry;
+	}
+
+	public function getEditorDraftContent() {
+		return sprintf('{
+		   "blocks":[
+			  {
+				 "type":"header",
+				 "data":{
+					"text":"%s",
+					"level":1
+				 }
+			  },
+			  {
+				 "type":"paragraph",
+				 "data":{
+					"text":"Start adding project details"
+				 }
+			  }
+		   ]
+		}', $this->name);
+	}
+
+    /**
+     * Columns this model's select boxes may request (see
+     * BaseModel::fieldValueFields). Derived from the pickers that actually exist,
+     * so this allows today's usage and nothing more.
+     */
+    public function fieldValueFields()
+    {
+        return array('id', 'name');
+    }
+
 }

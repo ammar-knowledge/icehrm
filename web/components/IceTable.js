@@ -41,6 +41,7 @@ class IceTable extends React.Component {
     const pager = { ...this.state.pagination };
     const { search } = this.state;
     pager.current = pagination.current;
+    pager.pageSize = pagination.pageSize;
     this.setState({
       pagination: pager,
     });
@@ -72,7 +73,7 @@ class IceTable extends React.Component {
     const pager = { ...this.state.pagination };
     this.setState({ search: value, refreshSearch: true });
     const fetchConfig = this.state.fetchConfig;
-    console.log(fetchConfig);
+    pager.pageSize = fetchConfig.limit ?? 10;
     if (fetchConfig) {
       fetchConfig.page = 1;
       //pager.current = 1;
@@ -110,16 +111,18 @@ class IceTable extends React.Component {
     //this.setState({ loading: this.state.showLoading });
     this.setState({ loading: true });
     //const hideMessage = message.loading({ content: 'Loading Latest Data ...', key: 'loadingTable', duration: 1});
-    const pagination = { ...this.state.pagination };
+    const pager = { ...this.state.pagination };
 
     if (this.props.adapter.localStorageEnabled) {
       try {
         const cachedResponse = this.props.reader.getCachedResponse(params);
         if (cachedResponse.items) {
+          pager.total = cachedResponse.total;
+          pager.pageSize = params.limit ?? 10;
           this.setState({
             loading: false,
             data: cachedResponse.items,
-            pagination,
+            pagination: pager,
             showLoading: false,
           });
         } else {
@@ -132,18 +135,12 @@ class IceTable extends React.Component {
 
     this.props.reader.get(params)
       .then(data => {
-        // Read total count from server
-        // pagination.total = data.totalCount;
-        pagination.total = data.total;
-        //hideMessage();
-        // setTimeout(
-        //   () => message.success({ content: 'Loading Completed!', key: 'loadingSuccess', duration: 1 }),
-        //   600
-        // );
+        pager.total = data.total;
+        pager.pageSize = params.limit ?? 10;
         this.setState({
           loading: false,
           data: data.items,
-          pagination,
+          pagination: pager,
           showLoading: false,
           fetchCompleted: true,
         });
@@ -233,7 +230,15 @@ class IceTable extends React.Component {
                 columns={this.props.columns}
                 rowKey={record => record.id}
                 dataSource={this.state.data}
-                pagination={this.state.pagination}
+                pagination={{
+                  ...this.state.pagination,
+                  // Opt-in page-size selector — enable via
+                  // adapter.setShowPageSizeChanger(true). Applied at render so it
+                  // survives every pagination state update (fetch/sort/search).
+                  ...(this.props.adapter && this.props.adapter.showPageSizeChanger
+                    ? { showSizeChanger: true, pageSizeOptions: ['10', '20', '50', '100'] }
+                    : {}),
+                }}
                 loading={this.state.loading}
                 onChange={this.handleTableChange}
                 reader={this.props.dataPipe}

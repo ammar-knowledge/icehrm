@@ -5,14 +5,22 @@
  */
 import React from 'react';
 import {
-  Space, Card, Spin, Row, Col,
+  Space, Card, Spin, Row, Col, Alert, Button, Dropdown, Modal,
 } from 'antd';
+import { LinkOutlined } from '@ant-design/icons';
 import { Donut, Pie } from '@antv/g2plot';
 import ReactDOM from 'react-dom';
 import AdapterBase from '../../../api/AdapterBase';
 import TaskList from '../../../components/TaskList';
+import EmployeeListWidget from '../employees/components/EmployeeListWidget';
+
+const axios = require('axios');
 
 class DashboardAdapter extends AdapterBase {
+  setVersion(version) {
+    this.version = version;
+  }
+
   getDataMapping() {
     return [];
   }
@@ -72,10 +80,56 @@ class DashboardAdapter extends AdapterBase {
   }
 
   initializeReactDashboard() {
-    //this.drawCompanyLeaveEntitlementChart();
+    // this.drawCompanyLeaveEntitlementChart();
     this.drawOnlineOfflineEmployeeChart();
     this.drawEmployeeDistributionChart();
+    this.showEmployeeList();
     this.buildTaskList();
+    this.showNews();
+  }
+
+  showConnectionModal() {
+    // Only show for Admin users who are not connected (and not cloud instance)
+    // eslint-disable-next-line no-undef
+    if (typeof isConnectedToIceHrm !== 'undefined' && typeof currentUserLevel !== 'undefined') {
+      // eslint-disable-next-line no-undef
+      const isCloud = typeof isCloudInstance !== 'undefined' && isCloudInstance;
+      // eslint-disable-next-line no-undef
+      if (currentUserLevel === 'Admin' && !isConnectedToIceHrm && !isCloud) {
+        Modal.confirm({
+          title: null,
+          icon: null,
+          width: 480,
+          content: (
+            <div style={{ textAlign: 'center', padding: '20px 0' }}>
+              <img
+                // eslint-disable-next-line no-undef
+                src={`${BASE_URL}images/logo.png`}
+                alt="IceHrm"
+                style={{ maxWidth: 180, height: 'auto', marginBottom: 20 }}
+              />
+              <h3 style={{ marginBottom: 12, color: '#333' }}>Connect to IceHrm.com</h3>
+              <p style={{ color: '#666', marginBottom: 16 }}>
+                Your IceHrm installation is not connected to IceHrm.com.
+              </p>
+              <p style={{ color: '#666', marginBottom: 8 }}>Connect to access:</p>
+              <ul style={{ textAlign: 'left', display: 'inline-block', color: '#666' }}>
+                <li>Marketplace extensions</li>
+                <li>Your purchased modules</li>
+                <li>Product updates and news</li>
+              </ul>
+            </div>
+          ),
+          okText: 'Connect Now',
+          cancelText: 'Later',
+          okButtonProps: { style: { backgroundColor: '#346CB0', borderColor: '#346CB0' } },
+          onOk() {
+            // eslint-disable-next-line no-undef
+            window.location.href = `${CLIENT_BASE_URL}?g=extension&n=marketplace|admin&m=admin_System#my-extensions`;
+          },
+        });
+      }
+    }
   }
 
   buildTaskList() {
@@ -94,6 +148,75 @@ class DashboardAdapter extends AdapterBase {
         );
 
         ReactDOM.unmountComponentAtNode(document.getElementById('TaskListLoader'));
+      });
+  }
+
+  showNews() {
+    document.getElementById('NewsHolder').style.display = 'none';
+    const versionSplit = this.version.split('.');
+    let type = versionSplit[versionSplit.length - 1];
+    type = type ? type.toLowerCase() : '';
+    const url = `https://icehrm.com/sapi/news?type=${type}&version=${this.version}&user=${this.user.user_level}`;
+    axios.get(url)
+      .then((data) => {
+        const news = data.data.data;
+        if (news == null) {
+          return;
+        }
+        if (news.show === true) {
+          this.apiClient
+            .get(`can-show-news/${news.id}`)
+            .then((canShowResponse) => {
+              if (canShowResponse.data === true) {
+                document.getElementById('NewsHolder').style.display = 'block';
+                const onDismiss = (e) => {
+                  const dismissPeriod = news.dismiss_period ? news.dismiss_period : 86400;
+                  this.apiClient
+                    .post('dismiss-news', { id: news.id, period: dismissPeriod })
+                    .then((dismissResponse) => {
+                      document.getElementById('NewsHolder').style.display = 'none';
+                    });
+                };
+                const visitNewsLink = (e) => {
+                  window.open(news.url, '_blank').focus();
+                };
+                ReactDOM.render(
+                  <Alert
+                    message={news.title}
+                    description={news.message}
+                    type="info"
+                    action={(
+                      <Space direction="info">
+                        <Button size="small" type="primary" onClick={visitNewsLink}>
+                          {news.button_text}
+                        </Button>
+                        <Button size="small" danger type="ghost" onClick={onDismiss}>
+                          Dismiss
+                        </Button>
+                      </Space>
+                    )}
+                  />,
+                  document.getElementById('NewsMessage'),
+                );
+              }
+            });
+        }
+      });
+  }
+
+  showEmployeeList() {
+    const that = this;
+    document.getElementById('EmployeeListWrapper').style.display = 'none';
+
+
+    this.apiClient
+      .post('staff-random', { limit: 15 })
+      .then((response) => {
+        ReactDOM.render(
+          <EmployeeListWidget url={`${CLIENT_BASE_URL}?g=extension&n=directory|user&m=module_Company`} adapter={this} employees={response.data} />,
+          document.getElementById('EmployeeList'),
+        );
+        document.getElementById('EmployeeListWrapper').style.display = 'block';
       });
   }
 

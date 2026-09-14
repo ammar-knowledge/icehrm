@@ -1,18 +1,20 @@
 import React from 'react';
 import {
-  Alert, Col, DatePicker, TimePicker, Form, Input, Row, Tooltip, Slider,
+  Alert, Col, DatePicker, TimePicker, Form, Input, Row, Tooltip, Slider, Switch, Select,
 } from 'antd';
 import {
   InfoCircleOutlined,
 } from '@ant-design/icons';
 import moment from 'moment';
+import IceRichTextBox from './IceRichTextBox';
 import IceUpload from './IceUpload';
 import IceDataGroup from './IceDataGroup';
 import IceSelect from './IceSelect';
 import IceLabel from './IceLabel';
 import IceColorPick from './IceColorPick';
 import IceSignature from './IceSignature';
-import IceEditor from './IceEditor';
+import IceDocumentField from './IceDocumentField';
+import IceCountryCityInput from './IceCountryCityInput';
 
 
 const ValidationRules = {
@@ -61,6 +63,37 @@ const ValidationRules = {
     const username = /^[a-zA-Z0-9.-]+$/;
     return str != null && username.test(str);
   },
+  password(password) {
+    if (password.length < 8) {
+      return false;
+    }
+
+    if (password.length > 30) {
+      return false;
+    }
+
+    const numberTester = /.*[0-9]+.*$/;
+    if (!password.match(numberTester)) {
+      return false;
+    }
+
+    const lowerTester = /.*[a-z]+.*$/;
+    if (!password.match(lowerTester)) {
+      return false;
+    }
+
+    const upperTester = /.*[A-Z]+.*$/;
+    if (!password.match(upperTester)) {
+      return false;
+    }
+
+    const symbolTester = /.*[\W]+.*$/;
+    if (!password.match(symbolTester)) {
+      return false;
+    }
+
+    return true;
+  },
 };
 
 
@@ -93,46 +126,52 @@ class IceForm extends React.Component {
 
   render() {
     const { fields, twoColumnLayout, adapter } = this.props;
-    let formInputs = [];
-    const formInputs1 = [];
-    const formInputs2 = [];
     const columns = !twoColumnLayout ? 1 : 2;
+    // Field types that need the full row even in two-column mode (anything
+    // with a large editing surface or its own internal layout).
+    const WIDE_FIELD_TYPES = [
+      'textarea', 'datagroup', 'quill', 'richtext', 'fileupload', 'signature',
+      'document', 'location',
+    ];
+    const formItems = [];
     for (let i = 0; i < fields.length; i++) {
-      formInputs.push(
-        adapter.beforeRenderFieldHook(
-          fields[i][0],
-          this.createFromField(fields[i], this.props.viewOnly),
-          fields[i][1],
-        ),
-      );
-    }
-    formInputs = formInputs.filter((input) => !!input);
+      if (this.props.viewOnly && adapter.getViewModeEnabledFields() !== null
+        && adapter.getViewModeEnabledFields().indexOf(fields[i][0]) === -1
+      ) {
+        continue;
+      }
 
-    for (let i = 0; i < formInputs.length; i++) {
-      if (formInputs[i] != null) {
-        if (columns === 1) {
-          formInputs1.push(formInputs[i]);
-        } else if (i % 2 === 0) {
-          formInputs1.push(formInputs[i]);
-        } else {
-          formInputs2.push(formInputs[i]);
-        }
+      const node = adapter.beforeRenderFieldHook(
+        fields[i][0],
+        this.createFromField(fields[i], this.props.viewOnly),
+        fields[i][1],
+      );
+      if (node) {
+        formItems.push({
+          node,
+          key: fields[i][0],
+          wide: WIDE_FIELD_TYPES.indexOf(fields[i][1].type) >= 0,
+          // Hidden fields hold values only — they must not occupy a grid slot
+          // (an invisible half-row column) in two-column mode.
+          hidden: fields[i][1].type === 'hidden',
+        });
       }
     }
 
     const onFormLayoutChange = () => { };
 
     let layout = this.props.layout || 'horizontal';
-    if ( !this.props.layout ) {
+    if (!this.props.layout) {
       layout = adapter.getFormLayout(this.props.viewOnly);
     }
 
     return (
       <Form
         ref={this.formReference}
-        labelCol={{ span: 6 }}
-        wrapperCol={{ span: 16 }}
-        layout={ layout }
+        labelCol={{ span: 8 }}
+        wrapperCol={{ span: layout === 'vertical' ? 24 : 16 }}
+        layout={layout}
+        labelWrap
         initialValues={{ size: 'middle' }}
         onValuesChange={onFormLayoutChange}
         size="middle"
@@ -144,16 +183,21 @@ class IceForm extends React.Component {
               <br />
             </>
           )}
-        {columns === 1 && formInputs1}
+        {columns === 1 && formItems.map((it) => it.node)}
         {columns === 2 && (
-          <Row gutter={16}>
-            <Col className="gutter-row" span={12}>
-              {formInputs1}
-            </Col>
-            <Col className="gutter-row" span={12}>
-              {formInputs2}
-            </Col>
-          </Row>
+          // Narrow fields flow two-per-row (in definition order); wide fields
+          // (textareas, datagroups, uploads, …) break out to the full width.
+          // Hidden fields render outside the grid so they don't leave gaps.
+          <>
+            {formItems.filter((it) => it.hidden).map((it) => it.node)}
+            <Row gutter={16}>
+              {formItems.filter((it) => !it.hidden).map((it) => (
+                <Col key={it.key} className="gutter-row" span={it.wide ? 24 : 12}>
+                  {it.node}
+                </Col>
+              ))}
+            </Row>
+          </>
         )}
       </Form>
     );
@@ -179,7 +223,7 @@ class IceForm extends React.Component {
     this.setState({ validations });
   }
 
-  createFromField(field, viewOnly = false) {
+  createFromField(field, viewOnly = false, showLabel = true) {
     let userId = 0;
     const rules = [];
     const requiredRule = { required: true };
@@ -187,15 +231,24 @@ class IceForm extends React.Component {
     const { adapter } = this.props;
     let { layout } = this.props;
     let validationRule = null;
-    data.label = adapter.gt(data.label);
+    // Use locals — never mutate the shared field definition object. Reassigning
+    // data.label used to leak across renders: viewing a record (which blanks the
+    // label when getViewModeShowLabel() is false) left the label empty in the
+    // subsequent edit form too.
+    const labelText = adapter.gt(data.label);
+
+    // Skip rendering if display is set to 'none'
+    if (data.display === 'none') {
+      return null;
+    }
 
     viewOnly = viewOnly || (data.readonly === true);
 
-    if ( !layout ) {
+    if (!layout) {
       layout = adapter.getFormLayout(this.props.viewOnly);
     }
 
-    const labelSpan = layout === 'vertical' ? { span: 24 } : { span: 6 };
+    const labelSpan = layout === 'vertical' ? { span: 24 } : { span: 8 };
 
     const tempSelectBoxes = ['select', 'select2', 'select2multi'];
     if (tempSelectBoxes.indexOf(data.type) >= 0 && data['allow-null'] === true) {
@@ -207,15 +260,34 @@ class IceForm extends React.Component {
       requiredRule.required = false;
     } else {
       requiredRule.required = true;
-      requiredRule.message = this.generateFieldMessage(data.label);
+      requiredRule.message = this.generateFieldMessage(labelText);
+    }
+
+    let displayLabel = labelText;
+    if (viewOnly && adapter.getViewModeShowLabel() === false) {
+      displayLabel = '';
     }
 
     rules.push(requiredRule);
 
+    // Add custom validation if provided
+    if (data.customValidation && typeof data.customValidation === 'function') {
+      rules.push({
+        validator: (_, value) => {
+          const formData = this.formReference.current?.getFieldsValue();
+          const errorMessage = data.customValidation(value, formData);
+          if (errorMessage) {
+            return Promise.reject(new Error(errorMessage));
+          }
+          return Promise.resolve();
+        },
+      });
+    }
+
     const label = (
       <div>
         {' '}
-        {data.label}
+        {displayLabel}
         {' '}
         { data.help
         && (<Tooltip title={data.help}><InfoCircleOutlined style={{ fontSize: '16px', color: '#1890ff' }} /></Tooltip>)}
@@ -236,15 +308,15 @@ class IceForm extends React.Component {
           <Input />
         </Form.Item>
       );
-    } if (data.type === 'text') {
+    } if (data.type === 'text' || data.type === 'password') {
       if (data.validation) {
         // TODO - not sure why following line was there. This stop correct validations for rules like numberOrEmpty
-        //data.validation = data.validation.replace('OrEmpty', '');
+        // data.validation = data.validation.replace('OrEmpty', '');
         validationRule = this.getValidationRule(data);
         if (validationRule) {
           this.validationRules[name] = {
             rule: validationRule,
-            message: `Invalid value for ${data.label}`,
+            message: data.message ? data.message : `Invalid value for ${labelText}`,
           };
         }
       }
@@ -261,7 +333,7 @@ class IceForm extends React.Component {
           >
             {viewOnly
               ? <IceLabel />
-              : <Input onChange={this.validateOnChange.bind(this)} />}
+              : data.type === 'password' ? <Input.Password onChange={this.validateOnChange.bind(this)} /> : <Input onChange={this.validateOnChange.bind(this)} />}
           </Form.Item>
         );
       }
@@ -295,6 +367,20 @@ class IceForm extends React.Component {
             : <Input.TextArea rows={data.rows} />}
         </Form.Item>
       );
+    } if (data.type === 'document') {
+      return (
+        <Form.Item
+          labelCol={labelSpan}
+          label={label}
+          key={name}
+          name={name}
+          rules={rules}
+        >
+          {viewOnly
+            ? <IceDocumentField />
+            : <IceDocumentField />}
+        </Form.Item>
+      );
     } if (data.type === 'date') {
       return (
         <Form.Item
@@ -308,6 +394,10 @@ class IceForm extends React.Component {
         </Form.Item>
       );
     } if (data.type === 'datetime') {
+      let dateFormat = 'YYYY-MM-DD HH:mm';
+      if (data.dateFormat) {
+        dateFormat = data.dateFormat;
+      }
       return (
         <Form.Item
           labelCol={labelSpan}
@@ -316,7 +406,7 @@ class IceForm extends React.Component {
           name={name}
           rules={rules}
         >
-          <DatePicker format="YYYY-MM-DD HH:mm:ss" showTime disabled={viewOnly} />
+          <DatePicker format={dateFormat} showTime={{ format: 'HH:mm' }} disabled={viewOnly} />
         </Form.Item>
       );
     } if (data.type === 'time') {
@@ -398,6 +488,22 @@ class IceForm extends React.Component {
           />
         </Form.Item>
       );
+    } if (data.type === 'location') {
+      return (
+        <Form.Item
+          labelCol={labelSpan}
+          label={label}
+          key={name}
+          name={name}
+          rules={rules}
+        >
+          <IceCountryCityInput
+            adapter={adapter}
+            field={field}
+            readOnly={viewOnly}
+          />
+        </Form.Item>
+      );
     } if (data.type === 'colorpick') {
       return (
         <Form.Item
@@ -438,10 +544,15 @@ class IceForm extends React.Component {
         >
           <Input
             bordered={false}
+            disabled
+            style={{ color: 'rgba(4, 4, 4, 0.85)' }}
           />
         </Form.Item>
       );
-    } if (data.type === 'editor') {
+    } if (data.type === 'quill' || data.type === 'richtext') {
+      // Rich text fields render the in-house IceRichTextBox (theme-aware, works
+      // in the dark SPA modal, no react-quill/findDOMNode issues). 'quill' is
+      // kept as an alias so existing field definitions need no changes.
       return (
         <Form.Item
           labelCol={labelSpan}
@@ -451,12 +562,7 @@ class IceForm extends React.Component {
           rules={rules}
           shouldUpdate
         >
-          <IceEditor
-            adapter={adapter}
-            field={field}
-            title={label}
-            readOnly={viewOnly}
-          />
+          <IceRichTextBox readOnly={viewOnly} />
         </Form.Item>
       );
     } if (data.type === 'slider') {
@@ -473,6 +579,46 @@ class IceForm extends React.Component {
             max={data.max}
             defaultValue={data.defaultValue ? data.defaultValue : 0}
           />
+        </Form.Item>
+      );
+    } if (data.type === 'switch') {
+      requiredRule.required = false;
+      return (
+        <Form.Item
+          labelCol={labelSpan}
+          label={label}
+          key={name}
+          name={name}
+          rules={rules}
+          valuePropName="checked"
+          getValueProps={(value) => {
+            // Convert '0'/'1' strings or 0/1 numbers to boolean for display
+            if (value === '1' || value === 1 || value === true) {
+              return { checked: true };
+            }
+            return { checked: false };
+          }}
+          normalize={(val) => {
+            // Normalize: always store as '0' or '1' string in form state
+            // This ensures the payload always contains '0'/'1' strings, not booleans
+            if (val === true || val === '1' || val === 1) {
+              return '1';
+            }
+            return '0';
+          }}
+          getValueFromEvent={(checked) => {
+            // Convert boolean from Switch component to '0' or '1' string for storage
+            return checked ? '1' : '0';
+          }}
+        >
+          {viewOnly
+            ? <IceLabel />
+            : (
+              <Switch
+                checkedChildren="Yes"
+                unCheckedChildren="No"
+              />
+            )}
         </Form.Item>
       );
     }
@@ -545,7 +691,7 @@ class IceForm extends React.Component {
     this.formReference.current.setFieldsValue(data);
   }
 
-  save(params, success) {
+  save(params, success, fail) {
     const { adapter, fields } = this.props;
     let values = params;
     values = adapter.forceInjectValuesBeforeSave(values);
@@ -563,11 +709,19 @@ class IceForm extends React.Component {
       values.id = id;
     }
     values = this.formFieldsToData(values, fields);
-    adapter.add(values, [], () => adapter.get([]), () => {
-      this.formReference.current.resetFields();
-      this.showError(false);
-      success();
-    });
+    adapter.add(
+        values,
+        [],
+        () => adapter.get([]),
+        () => {
+          this.formReference.current.resetFields();
+          this.showError(false);
+          success();
+          },
+        () => {
+          if (fail) { fail() };
+        },
+    );
   }
 }
 

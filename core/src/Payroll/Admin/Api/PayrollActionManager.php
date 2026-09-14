@@ -9,6 +9,7 @@
 namespace Payroll\Admin\Api;
 
 use Classes\BaseService;
+use Classes\Cron\Task\PayrollProcessTask;
 use Classes\FileService;
 use Classes\IceConstants;
 use Classes\IceResponse;
@@ -25,6 +26,8 @@ use Payroll\Common\Model\Payroll;
 use Payroll\Common\Model\PayrollCalculations;
 use Payroll\Common\Model\PayrollColumn;
 use Payroll\Common\Model\PayrollData;
+use Payroll\Common\Model\PayslipTemplate;
+use Payroll\Common\PayslipHtmlBuilder;
 use Reports\User\Reports\PayslipReport;
 use Salary\Common\Model\EmployeeSalary;
 use Salary\Common\Model\PayrollEmployee;
@@ -59,6 +62,24 @@ class PayrollActionManager extends SubActionManager
         }
 
         return null;
+    }
+
+    /**
+     * Turn a stored JSON array of row ids (payroll column config: salary_components,
+     * deductions, add_columns, sub_columns) into a safe comma-separated integer list
+     * for an "id IN (...)" clause. These values come from admin-editable config and
+     * were previously imploded verbatim into SQL — casting every element to int
+     * removes the injection vector while preserving the id-list semantics. Returns
+     * '0' (matches no row) when the input is empty or non-numeric.
+     */
+    private function safeIdInList($jsonList)
+    {
+        $ids = json_decode($jsonList, true);
+        if (!is_array($ids) || empty($ids)) {
+            return '0';
+        }
+        $ints = array_map('intval', $ids);
+        return implode(',', $ints);
     }
 
     public function calculatePayrollColumn(
@@ -120,12 +141,12 @@ class PayrollActionManager extends SubActionManager
 
         //Salary
         LogManager::getInstance()->info("salary components row:".$col->salary_components);
-        if (!empty($col->salary_components) 
+        if (!empty($col->salary_components)
             && !empty(json_decode($col->salary_components, true))
         ) {
             $salaryComponent = new SalaryComponent();
             $salaryComponents = $salaryComponent->Find(
-                "id in (".implode(",", json_decode($col->salary_components, true)).")",
+                "id in (".$this->safeIdInList($col->salary_components).")",
                 array()
             );
             foreach ($salaryComponents as $salaryComponent) {
@@ -141,18 +162,18 @@ class PayrollActionManager extends SubActionManager
         );
 
         //Deductions
-        if (!empty($col->deductions) 
+        if (!empty($col->deductions)
             && !empty(json_decode($col->deductions, true))
         ) {
             $deduction = new Deduction();
             if (empty($payRollEmp->deduction_group)) {
                 $deductions = $deduction->Find(
-                    "id in (".implode(",", json_decode($col->deductions, true)).")",
+                    "id in (".$this->safeIdInList($col->deductions).")",
                     array()
                 );
             } else {
                 $deductions = $deduction->Find(
-                    "deduction_group = ? and id in (".implode(",", json_decode($col->deductions, true)).")",
+                    "deduction_group = ? and id in (".$this->safeIdInList($col->deductions).")",
                     array($payRollEmp->deduction_group)
                 );
             }
@@ -182,12 +203,11 @@ class PayrollActionManager extends SubActionManager
                 $evalMath->evaluate('min(x,y) = y - (y - x) * ceil(tanh(exp(tanh(y - x)) - exp(0)))');
             }
 
-            if (!empty($col->add_columns) 
+            if (!empty($col->add_columns)
                 && !empty(json_decode($col->add_columns, true))
             ) {
-                $colIds = json_decode($col->add_columns, true);
                 $payrollColumn = new PayrollColumn();
-                $payrollColumns = $payrollColumn->Find("id in (".implode(",", $colIds).")", array());
+                $payrollColumns = $payrollColumn->Find("id in (".$this->safeIdInList($col->add_columns).")", array());
                 foreach ($payrollColumns as $payrollColumn) {
                     $sum += $this->calculatePayrollColumn(
                         $payrollColumn,
@@ -199,12 +219,11 @@ class PayrollActionManager extends SubActionManager
                 }
             }
 
-            if (!empty($col->sub_columns) 
+            if (!empty($col->sub_columns)
                 && !empty(json_decode($col->sub_columns, true))
             ) {
-                $colIds = json_decode($col->sub_columns, true);
                 $payrollColumn = new PayrollColumn();
-                $payrollColumns = $payrollColumn->Find("id in (".implode(",", $colIds).")", array());
+                $payrollColumns = $payrollColumn->Find("id in (".$this->safeIdInList($col->sub_columns).")", array());
                 foreach ($payrollColumns as $payrollColumn) {
                     $sum -= $this->calculatePayrollColumn(
                         $payrollColumn,
@@ -285,7 +304,7 @@ class PayrollActionManager extends SubActionManager
         if (!empty($deduction->componentType) && !empty(json_decode($deduction->componentType, true))) {
             $salaryComponent = new SalaryComponent();
             $salaryComponents = $salaryComponent->Find(
-                "componentType in (".implode(",", json_decode($deduction->componentType, true)).")",
+                "componentType in (".$this->safeIdInList($deduction->componentType).")",
                 array()
             );
         }
@@ -294,7 +313,7 @@ class PayrollActionManager extends SubActionManager
         if (!empty($deduction->component) && !empty(json_decode($deduction->component, true))) {
             $salaryComponent = new SalaryComponent();
             $salaryComponents2 = $salaryComponent->Find(
-                "id in (".implode(",", json_decode($deduction->component, true)).")",
+                "id in (".$this->safeIdInList($deduction->component).")",
                 array()
             );
         }
@@ -447,6 +466,9 @@ class PayrollActionManager extends SubActionManager
             return new IceResponse(IceResponse::ERROR, 'Error saving payroll');
         }
 
+		$task = new PayrollProcessTask();
+		$task->process($payroll);
+
         return new IceResponse(IceResponse::SUCCESS);
     }
 
@@ -497,10 +519,18 @@ class PayrollActionManager extends SubActionManager
         $emp = new $rowTable();
         $emps = [];
         if (!empty($empIds)) {
-            $emps = $emp->Find(
-                "pay_frequency = ? and deduction_group = ? and employee in (".implode(",", $empIds).")",
-                array($payroll->pay_period, $payroll->deduction_group)
-            );
+			if ( empty ($payroll->deduction_group)) {
+				$emps = $emp->Find(
+					"pay_frequency = ? and deduction_group is NULL and employee in (".implode(",", $empIds).")",
+					array($payroll->pay_period)
+				);
+			} else {
+				$emps = $emp->Find(
+					"pay_frequency = ? and deduction_group = ? and employee in (".implode(",", $empIds).")",
+					array($payroll->pay_period, $payroll->deduction_group)
+				);
+			}
+
         }
 
         $employees = array();
@@ -516,7 +546,7 @@ class PayrollActionManager extends SubActionManager
         $columns = [];
         if (!empty($columnList)) {
             $columns = $column->Find(
-                "enabled = ? and id in (".implode(",", $columnList).") order by colorder, id",
+                "enabled = ? and id in (".implode(",", array_map('intval', $columnList)).") order by colorder, id",
                 array('Yes')
             );
         }
@@ -635,6 +665,8 @@ class PayrollActionManager extends SubActionManager
         $payroll->status = PayrollActionManager::PAYROLL_STATUS_COMPLETING;
         $ok = $payroll->Save();
 
+		$task = new PayrollProcessTask();
+
         if (!$ok) {
             LogManager::getInstance()->error('Error saving payroll: '. $payroll->ErrorMsg());
 
@@ -643,6 +675,34 @@ class PayrollActionManager extends SubActionManager
 
         return new IceResponse(IceResponse::SUCCESS);
     }
+
+	public function createPayslipFile($result, $employee)
+	{
+		$fileFirstPart = "payslip_".str_replace(" ", "_", $employee->id)."-".date("Y-m-d_H-i-s");
+		$fileName = $fileFirstPart.".html";
+
+		$fileFullName = BaseService::getInstance()->getDataDirectory().$fileName;
+
+		$fp = fopen($fileFullName, 'w');
+		fwrite($fp, $result);
+		fclose($fp);
+
+		try {
+			$fileFullNamePdf = BaseService::getInstance()->getDataDirectory().$fileFirstPart.".pdf";
+			// Render the payslip HTML (the template design) to PDF natively via
+			// mPDF — no external wkhtmltopdf/WK_HTML_PATH process. The .html file
+			// above is kept as a fallback if rendering fails.
+			\Classes\Pdf\HtmlPdfRenderer::toFile($result, $fileFullNamePdf);
+
+			if (file_exists($fileFullNamePdf)) {
+				$fileName = $fileFirstPart.".pdf";
+				$fileFullName = $fileFullNamePdf;
+			}
+		} catch (\Exception $exp) {
+			LogManager::getInstance()->notifyException($exp);
+		}
+		return array($fileFirstPart, $fileName, $fileFullName);
+	}
 
     /**
      * Completion step of the payroll
@@ -690,11 +750,19 @@ class PayrollActionManager extends SubActionManager
 
         $emp = new PayrollEmployee();
         $emps = [];
-        if(!empty($empIds)) {
-            $emps = $emp->Find(
-                "pay_frequency = ? and deduction_group = ? and employee in (".implode(",", $empIds).")",
-                array($payroll->pay_period, $payroll->deduction_group)
-            );
+        if (!empty($empIds)) {
+			if (empty($payroll->deduction_group)) {
+				$emps = $emp->Find(
+					"pay_frequency = ? and deduction_group is NULL and employee in (".implode(",", $empIds).")",
+					array($payroll->pay_period)
+				);
+			} else {
+				$emps = $emp->Find(
+					"pay_frequency = ? and deduction_group = ? and employee in (".implode(",", $empIds).")",
+					array($payroll->pay_period, $payroll->deduction_group)
+				);
+			}
+
         }
 
         $report = new UserReport();
@@ -729,7 +797,22 @@ class PayrollActionManager extends SubActionManager
             if (empty($data)) {
                 continue;
             }
-            $reportCreationData = $cls->createReportFile($report, $data);
+
+			$payslipTemplate = new PayslipTemplate();
+			$payslipTemplate->Load('id = ?', [$payroll->payslipTemplate]);
+			if (!empty($payslipTemplate->data)) {
+				// Legacy template — rendered via the payslip Twig template (mPDF).
+				$reportCreationData = $cls->createReportFile($report, $data);
+			} else {
+				$builder = new PayslipHtmlBuilder();
+				// buildPreview expects the PayrollEmployee id (it resolves the Employee and
+				// keys PayrollData off it), not the raw Employee id — otherwise employee
+				// fields and {{column_*}} tokens never resolve.
+				$html = $builder->buildPreview($payslipTemplate->design, $payroll->id, $emp->id);
+				// The design HTML is rendered to PDF natively via mPDF inside createPayslipFile.
+				$reportCreationData = $this->createPayslipFile($html, $e);
+			}
+
             $ext = str_replace($reportCreationData[0].'.', '', $reportCreationData[1]);
 
             $fileName = $this->movePayslipFile($reportCreationData[2], $payroll, $e->id, $ext);
@@ -761,6 +844,7 @@ class PayrollActionManager extends SubActionManager
             );
 
             $doc->visible_to = 'Owner Only';
+            $doc->payroll_id = $payroll->id;
             $doc->Save();
 
             BaseService::getInstance()->notificationManager->addNotification(

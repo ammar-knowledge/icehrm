@@ -8,8 +8,10 @@
 
 namespace Documents\Common\Model;
 
+use Classes\FileService;
 use Classes\IceResponse;
 use Classes\ModuleAccess;
+use Employees\Common\Model\Employee;
 use Model\BaseModel;
 
 class EmployeeDocument extends BaseModel
@@ -23,12 +25,14 @@ class EmployeeDocument extends BaseModel
 
     public function getAdminAccess()
     {
-        return array("get","element","save","delete");
+        return array("get","element","add","save","delete");
     }
 
     public function getManagerAccess()
     {
-        return array("get","element","save","delete");
+        // View-only for managers — they can see their direct reports' documents
+        // but cannot add, edit or delete them.
+        return array("get","element");
     }
 
     public function getUserAccess()
@@ -38,7 +42,7 @@ class EmployeeDocument extends BaseModel
 
     public function getUserOnlyMeAccess()
     {
-        return array("element","save","delete");
+        return array("element","add","save","delete");
     }
     // @codingStandardsIgnoreStart
     public function Insert()
@@ -84,4 +88,25 @@ class EmployeeDocument extends BaseModel
     {
         return $this->getFinder()->getTotalCount($query, $data);
     }
+
+    public function postProcessGetData($obj)
+    {
+        $employee = new Employee();
+        $employee->Load('id = ?', [$obj->employee]);
+        $employee = FileService::getInstance()->updateSmallProfileImage($employee);
+        $obj->image = $employee->image;
+
+        return $obj;
+    }
+
+    /**
+     * A team list exists for this model: the adapter opts into `type=sub`
+     * (isSubProfileTable), so BaseService::getData() may scope its rows to the
+     * caller's direct reports. See BaseModel::allowsSubordinateList().
+     */
+    public function allowsSubordinateList()
+    {
+        return true;
+    }
+
 }

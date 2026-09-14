@@ -16,6 +16,7 @@ use Dependents\Common\Model\EmployeeDependent;
 use EmergencyContacts\Common\Model\EmergencyContact;
 use Employees\Common\Model\ArchivedEmployee;
 use Employees\Common\Model\Employee;
+use Expenses\Common\Model\EmployeeExpense;
 use Projects\Common\Model\EmployeeProject;
 use Qualifications\Common\Model\EmployeeCertification;
 use Qualifications\Common\Model\EmployeeEducation;
@@ -56,6 +57,14 @@ class EmployeesActionManager extends SubActionManager
     public function activateEmployee($req)
     {
         $employee = new Employee();
+
+        // Employee lifecycle is Admin-only — a Manager reaches this module but must not
+        // activate/terminate/delete employees. Checked BEFORE loading (matching
+        // terminateEmployee) so it also does not leak whether an id exists pre-auth.
+        // checkSecureAccess('delete') denies any level without "delete" on the Employee
+        // model (only Admin has it). Was missing here entirely.
+        $this->baseService->checkSecureAccess('delete', $employee, 'Employee', $_POST);
+
         $employee->Load("id = ?", array($req->id));
 
         if (empty($employee->id)) {
@@ -76,6 +85,15 @@ class EmployeesActionManager extends SubActionManager
     {
 
         $employee = new Employee();
+
+        // Admin-only. A Manager reaches admin=employees but must not delete employees
+        // (nor receive the full archived record — salary, SSN, NIC — this method
+        // returns). Checked BEFORE loading (matching terminateEmployee) so it also
+        // does not leak whether an id exists pre-auth. checkSecureAccess('delete')
+        // denies any level lacking "delete" on the Employee model; only Admin has it.
+        // This check was entirely absent.
+        $this->baseService->checkSecureAccess('delete', $employee, 'Employee', $_POST);
+
         $employee->Load("id = ?", array($req->id));
 
         if (empty($employee->id)) {
@@ -119,7 +137,8 @@ class EmployeesActionManager extends SubActionManager
             function ($item) {
                 $item->image_in = '';
                 $item->image_out = '';
-            }, $attendnace
+            },
+            $attendnace
         );
 
         if (class_exists('\Documents\Common\Model\EmployeeDocument')) {
@@ -134,6 +153,7 @@ class EmployeesActionManager extends SubActionManager
         $data->dependants = $this->getEmployeeData($employee->id, new EmployeeDependent());
         $data->emergencyContacts = $this->getEmployeeData($employee->id, new EmergencyContact());
         $data->projects = $this->getEmployeeData($employee->id, new EmployeeProject());
+        $data->expenses = $this->getEmployeeData($employee->id, new EmployeeExpense());
 
         $archived->data = json_encode($data, JSON_PRETTY_PRINT);
 
@@ -155,8 +175,6 @@ class EmployeesActionManager extends SubActionManager
 
     public function downloadArchivedEmployee($req)
     {
-
-
         if ($this->baseService->currentUser->user_level != 'Admin') {
             echo "Error: Permission denied";
             exit();
@@ -174,24 +192,23 @@ class EmployeesActionManager extends SubActionManager
 
         $str = json_encode($employee, JSON_PRETTY_PRINT);
 
-        $filename = uniqid();
-        $file = fopen("/tmp/".$filename, "w");
-        fwrite($file, $str);
-        fclose($file);
-
+        // Served straight from memory. The previous version wrote to a predictable
+        // world-readable /tmp file and never unlinked it, leaving employee PII on disk.
         $downloadFileName = "employee_".$employee->id."_"
             .str_replace(" ", "_", $employee->first_name)."_"
             .str_replace(" ", "_", $employee->last_name).".txt";
+        // Names are user-controlled and land in a header; keep the filename to safe chars.
+        $downloadFileName = preg_replace('/[^A-Za-z0-9._-]/', '_', $downloadFileName);
 
         header("Pragma: public"); // required
         header("Expires: 0");
         header("Cache-Control: must-revalidate, post-check=0, pre-check=0");
         header("Content-Description: File Transfer");
-        header("Content-Type: image/jpg");
+        header("Content-Type: application/json");
         header('Content-Disposition: attachment; filename="'.$downloadFileName.'"');
         header("Content-Transfer-Encoding: binary");
-        header("Content-Length: ".filesize("/tmp/".$filename));
-        readfile("/tmp/".$filename);
+        header("Content-Length: ".strlen($str));
+        echo $str;
         exit();
     }
 
